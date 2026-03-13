@@ -1,0 +1,588 @@
+{{define "rules"}}
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  {{template "head"}}
+  <title>Rules — mailrelay</title>
+  <style>
+    .fade-in { animation: fadeIn 0.2s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes modalSlideUp { from { opacity: 0; transform: translateY(16px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes modalSlideOut { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(8px) scale(0.98); } }
+    @keyframes backdropOut { from { opacity: 1; } to { opacity: 0; } }
+    .modal-backdrop { animation: modalFadeIn 0.15s ease-out; }
+    .modal-panel { animation: modalSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+    .modal-backdrop-out { animation: backdropOut 0.15s ease-in forwards; }
+    .modal-panel-out { animation: modalSlideOut 0.15s ease-in forwards; }
+  </style>
+</head>
+<body class="h-full text-foreground dark:text-zinc-100">
+  <div class="min-h-full">
+    {{/* Navigation */}}
+    <nav class="site-nav sticky top-0 z-30 backdrop-blur-lg">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="flex h-14 items-center justify-between">
+          <div class="flex items-center gap-6">
+            <a href="/" class="flex items-center gap-2.5">
+              <img src="/static/favicon.svg" alt="mailrelay" class="h-7 w-7 rounded-lg">
+              <span class="text-sm tracking-tight"><span class="font-medium text-foreground dark:text-zinc-200">mail</span><span class="font-bold text-amber-500">relay</span></span>
+            </a>
+            <div class="hidden sm:flex items-center rounded-lg bg-black/[0.04] dark:bg-white/[0.05] p-0.5 gap-0.5">
+              <a href="/" class="rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-300 transition-colors">Emails</a>
+              <a href="/rules" class="nav-tab-active rounded-md px-3 py-1.5 text-xs font-semibold transition-all">Rules</a>
+              <a href="/settings" class="rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-300 transition-colors">Settings</a>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button onclick="toggleTheme()" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-black/[0.07] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.08] transition-all btn-press" title="Toggle theme">
+              <svg class="h-4 w-4 hidden dark:block" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" /></svg>
+              <svg class="h-4 w-4 block dark:hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" /></svg>
+            </button>
+            <div class="hidden sm:flex items-center gap-1 border-l border-black/[0.07] dark:border-white/[0.07] pl-3">
+              <a href="/metrics" class="rounded-md px-2 py-1 text-xs text-muted-foreground dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors">Metrics</a>
+              <a href="/healthz" class="rounded-md px-2 py-1 text-xs text-muted-foreground dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors">Health</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-6 sm:py-8">
+      {{if .Error}}
+      <div class="mb-6 card border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-400 fade-in">
+        {{.Error}}
+      </div>
+      {{end}}
+
+      {{/* Header */}}
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+        <div class="space-y-0.5">
+          <h1 class="text-lg font-semibold text-foreground dark:text-zinc-100">Rules</h1>
+          <p class="text-sm text-muted-foreground dark:text-zinc-500">Route incoming emails to webhooks based on matching criteria</p>
+        </div>
+        <button onclick="openFormModal()" class="btn-primary inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 h-9 text-sm shadow-sm transition-all btn-press self-start sm:self-auto">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+          Create Rule
+        </button>
+      </div>
+
+      {{/* Rules List */}}
+      {{if .Rules}}
+      <div class="grid gap-3 md:gap-4">
+        {{range .Rules}}
+        <div class="card card-hover cursor-pointer transition-all {{if not .Enabled}}opacity-60{{end}}"
+          onclick="openDetailModal(this)"
+          data-rule-id="{{.ID}}"
+          data-rule-name="{{.Name}}"
+          data-rule-enabled="{{.Enabled}}"
+          data-rule-match-to-email="{{.Match.ToEmail}}"
+          data-rule-match-from-email="{{.Match.FromEmail}}"
+          data-rule-match-subject="{{.Match.Subject}}"
+          data-rule-match-to-domain="{{.Match.ToDomain}}"
+          data-rule-match-from-domain="{{.Match.FromDomain}}"
+          data-rule-webhook-url="{{.Webhook.URL}}"
+          data-rule-webhook-method="{{.Webhook.Method}}"
+          data-rule-webhook-headers="{{headersToText .Webhook.Headers}}"
+          data-rule-webhook-template="{{.Webhook.PayloadTemplate}}"
+        >
+          <div class="px-4 py-3.5 sm:px-5">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2.5">
+                  {{if .Enabled}}
+                  <span class="relative flex h-2 w-2 shrink-0">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  {{else}}
+                  <span class="inline-flex h-2 w-2 shrink-0 rounded-full bg-zinc-300 dark:bg-zinc-600"></span>
+                  {{end}}
+                  <h3 class="text-sm font-semibold text-foreground dark:text-zinc-100 truncate">{{.Name}}</h3>
+                </div>
+                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                  {{if .Match.ToEmail}}<span class="inline-flex items-center rounded-md bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700 dark:text-indigo-400 ring-1 ring-inset ring-indigo-600/10 dark:ring-indigo-500/20">to: {{.Match.ToEmail}}</span>{{end}}
+                  {{if .Match.FromEmail}}<span class="inline-flex items-center rounded-md bg-violet-50 dark:bg-violet-950 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:text-violet-400 ring-1 ring-inset ring-violet-600/10 dark:ring-violet-500/20">from: {{.Match.FromEmail}}</span>{{end}}
+                  {{if .Match.Subject}}<span class="inline-flex items-center rounded-md bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400 ring-1 ring-inset ring-amber-600/10 dark:ring-amber-500/20">subj: {{.Match.Subject}}</span>{{end}}
+                  {{if .Match.ToDomain}}<span class="inline-flex items-center rounded-md bg-cyan-50 dark:bg-cyan-950 px-1.5 py-0.5 text-[11px] font-medium text-cyan-700 dark:text-cyan-400 ring-1 ring-inset ring-cyan-600/10 dark:ring-cyan-500/20">to_dom: {{.Match.ToDomain}}</span>{{end}}
+                  {{if .Match.FromDomain}}<span class="inline-flex items-center rounded-md bg-rose-50 dark:bg-rose-950 px-1.5 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-400 ring-1 ring-inset ring-rose-600/10 dark:ring-rose-500/20">from_dom: {{.Match.FromDomain}}</span>{{end}}
+                  {{if and (not .Match.ToEmail) (not .Match.FromEmail) (not .Match.Subject) (not .Match.ToDomain) (not .Match.FromDomain)}}<span class="inline-flex items-center rounded-md bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/10 dark:ring-zinc-500/20 italic">catch-all</span>{{end}}
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="inline-flex items-center rounded-md bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-zinc-500 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/10 dark:ring-zinc-500/20">{{.Webhook.Method}}</span>
+                <svg class="h-4 w-4 text-muted-foreground dark:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+              </div>
+            </div>
+            <div class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground dark:text-zinc-500 truncate">
+              <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" /></svg>
+              <span class="font-mono truncate">{{.Webhook.URL}}</span>
+            </div>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="card p-12 text-center">
+        <div class="flex h-14 w-14 items-center justify-center rounded-full bg-muted dark:bg-zinc-800 mx-auto mb-4">
+          <svg class="h-7 w-7 text-muted-foreground dark:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+        </div>
+        <p class="text-sm font-medium text-foreground dark:text-zinc-200">No rules configured</p>
+        <p class="text-sm text-muted-foreground dark:text-zinc-500 mt-1">Create your first rule to start routing emails to webhooks</p>
+        <button onclick="openFormModal()" class="btn-primary mt-5 inline-flex items-center gap-1.5 rounded-lg px-4 h-9 text-sm shadow-sm transition-all btn-press">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+          Create Rule
+        </button>
+      </div>
+      {{end}}
+    </main>
+  </div>
+
+  {{/* ===== Detail Modal ===== */}}
+  <div id="detail-modal" class="hidden fixed inset-0 z-50">
+    <div id="detail-backdrop" class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm modal-backdrop" onclick="closeDetailModal()"></div>
+    <div class="absolute inset-0 flex items-start justify-center pt-[10vh] px-4 pointer-events-none">
+      <div id="detail-panel" class="pointer-events-auto w-full max-w-lg card shadow-2xl modal-panel overflow-hidden">
+        {{/* Header */}}
+        <div class="flex items-center justify-between px-5 py-4 border-b border-border dark:border-zinc-800">
+          <div class="flex items-center gap-3 min-w-0">
+            <div id="detail-status-dot"></div>
+            <h2 id="detail-name" class="text-base font-semibold truncate dark:text-zinc-100"></h2>
+          </div>
+          <button onclick="closeDetailModal()" class="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted dark:hover:bg-zinc-800 text-muted-foreground dark:text-zinc-400 transition-colors shrink-0">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {{/* Content */}}
+        <div class="px-5 py-4 space-y-5">
+          {{/* Match Criteria */}}
+          <div>
+            <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider mb-2.5">Match Criteria</h3>
+            <div id="detail-match" class="flex flex-wrap gap-1.5"></div>
+          </div>
+
+          {{/* Webhook */}}
+          <div>
+            <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider mb-2.5">Webhook</h3>
+            <div class="rounded-lg border border-border dark:border-zinc-700 bg-muted/30 dark:bg-zinc-800/50 overflow-hidden">
+              <div class="px-3.5 py-2.5 flex items-center gap-2">
+                <span id="detail-method" class="inline-flex items-center rounded-md bg-zinc-100 dark:bg-zinc-700 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-zinc-600 dark:text-zinc-300 ring-1 ring-inset ring-zinc-500/10 dark:ring-zinc-500/20"></span>
+                <span id="detail-url" class="text-sm font-mono text-foreground dark:text-zinc-200 truncate"></span>
+              </div>
+              <div id="detail-headers-section" class="hidden border-t border-border dark:border-zinc-700">
+                <div class="px-3.5 py-2.5">
+                  <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider mb-1">Headers</p>
+                  <pre id="detail-headers" class="text-xs font-mono text-muted-foreground dark:text-zinc-400 whitespace-pre-wrap"></pre>
+                </div>
+              </div>
+              <div id="detail-template-section" class="hidden border-t border-border dark:border-zinc-700">
+                <div class="px-3.5 py-2.5">
+                  <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider mb-1">Payload Template</p>
+                  <pre id="detail-template" class="text-xs font-mono text-muted-foreground dark:text-zinc-400 whitespace-pre-wrap"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {{/* Actions */}}
+        <div class="flex items-center gap-2 px-5 py-4 border-t border-border dark:border-zinc-800 bg-muted/30 dark:bg-zinc-800/30">
+          <form id="detail-toggle-form" method="POST" class="inline">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <button type="submit" id="detail-toggle-btn"
+              class="inline-flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 h-8 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">
+            </button>
+          </form>
+          <button id="detail-edit-btn" onclick="editFromDetail()"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 h-8 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+            Edit
+          </button>
+          <div class="flex-1"></div>
+          <button id="detail-delete-btn"
+            hx-swap="none"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 px-3 h-8 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950 shadow-sm transition-all btn-press">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{/* ===== Create/Edit Form Modal ===== */}}
+  <div id="form-modal" class="hidden fixed inset-0 z-50">
+    <div id="form-backdrop" class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm modal-backdrop" onclick="closeFormModal()"></div>
+    <div class="absolute inset-0 flex items-start justify-center pt-[5vh] px-4 pointer-events-none overflow-y-auto pb-8">
+      <div id="form-panel" class="pointer-events-auto w-full max-w-2xl card shadow-2xl modal-panel overflow-hidden">
+        {{/* Header */}}
+        <div class="flex items-center justify-between px-6 sm:px-8 py-5 border-b border-border dark:border-zinc-800">
+          <div>
+            <h2 id="form-title" class="text-lg font-semibold dark:text-zinc-100">Create Rule</h2>
+            <p id="form-subtitle" class="text-sm text-muted-foreground dark:text-zinc-500 mt-0.5">Route matching emails to a webhook endpoint</p>
+          </div>
+          <button onclick="closeFormModal()" class="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted dark:hover:bg-zinc-800 text-muted-foreground dark:text-zinc-400 transition-colors shrink-0">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {{/* Form error */}}
+        <div id="form-error" class="hidden mx-6 sm:mx-8 mt-5 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-400"></div>
+
+        <form id="rule-form" method="POST" action="/rules">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          {{/* Name section */}}
+          <div class="px-6 sm:px-8 pt-6 pb-6">
+            <label for="name" class="block text-sm font-medium text-foreground dark:text-zinc-200 mb-2">Rule Name <span class="text-red-500">*</span></label>
+            <input type="text" id="name" name="name"
+              placeholder="e.g. alerts-to-slack"
+              required
+              class="input-field h-10 w-full max-w-md rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+            <p class="mt-1.5 text-xs text-muted-foreground dark:text-zinc-500">A unique name to identify this rule</p>
+          </div>
+
+          {{/* Match criteria section */}}
+          <div class="border-t border-border dark:border-zinc-800 px-6 sm:px-8 pt-6 pb-6">
+            <div class="mb-4">
+              <h3 class="text-sm font-medium text-foreground dark:text-zinc-200">Match Criteria</h3>
+              <p class="text-xs text-muted-foreground dark:text-zinc-500 mt-1">Define which emails trigger this rule. Leave fields empty to match all.</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
+              <div>
+                <label for="match_to_email" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">To Email</label>
+                <input type="text" id="match_to_email" name="match_to_email"
+                  placeholder="support@* or /regex/"
+                  class="input-field h-10 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+              </div>
+              <div>
+                <label for="match_from_email" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">From Email</label>
+                <input type="text" id="match_from_email" name="match_from_email"
+                  placeholder="*@example.com"
+                  class="input-field h-10 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+              </div>
+              <div>
+                <label for="match_subject" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Subject</label>
+                <input type="text" id="match_subject" name="match_subject"
+                  placeholder="ALERT* or /(?i)error/"
+                  class="input-field h-10 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+              </div>
+              <div>
+                <label for="match_to_domain" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">To Domain</label>
+                <input type="text" id="match_to_domain" name="match_to_domain"
+                  placeholder="alerts.example.com"
+                  class="input-field h-10 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+              </div>
+              <div class="sm:col-span-2">
+                <label for="match_from_domain" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">From Domain</label>
+                <input type="text" id="match_from_domain" name="match_from_domain"
+                  placeholder="*.example.com"
+                  class="input-field h-10 w-full max-w-sm rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-500">
+              </div>
+            </div>
+          </div>
+
+          {{/* Webhook section */}}
+          <div class="border-t border-border dark:border-zinc-800 px-6 sm:px-8 pt-6 pb-6">
+            <div class="mb-4">
+              <h3 class="text-sm font-medium text-foreground dark:text-zinc-200">Webhook</h3>
+              <p class="text-xs text-muted-foreground dark:text-zinc-500 mt-1">Configure the HTTP endpoint to receive matched emails</p>
+            </div>
+            <div class="space-y-4">
+              <div class="flex gap-4">
+                <div class="w-32">
+                  <label for="webhook_method" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Method</label>
+                  <select id="webhook_method" name="webhook_method"
+                    class="input-field h-10 w-full appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 cursor-pointer">
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="GET">GET</option>
+                  </select>
+                </div>
+                <div class="flex-1">
+                  <label for="webhook_url" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">URL <span class="text-red-500">*</span></label>
+                  <input type="url" id="webhook_url" name="webhook_url"
+                    placeholder="https://hooks.slack.com/services/..."
+                    required
+                    class="input-field h-10 w-full rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-500">
+                </div>
+              </div>
+              <div>
+                <label for="webhook_headers" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Headers <span class="text-muted-foreground dark:text-zinc-500 font-normal">(one per line, Key: Value)</span></label>
+                <textarea id="webhook_headers" name="webhook_headers" rows="2"
+                  placeholder="Authorization: Bearer token&#10;Content-Type: application/json"
+                  class="input-field w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 py-2.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600"></textarea>
+              </div>
+              <div>
+                <label for="payload_template" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Payload Template <span class="text-muted-foreground dark:text-zinc-500 font-normal">(Go template, leave empty for full JSON)</span></label>
+                <textarea id="payload_template" name="payload_template" rows="3"
+                  placeholder='{"text": "Email from {{`{{.EnvelopeFrom}}`}}: {{`{{.Subject}}`}}"}'
+                  class="input-field w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 py-2.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600"></textarea>
+              </div>
+            </div>
+          </div>
+
+          {{/* Footer / Submit */}}
+          <div class="flex items-center justify-end gap-3 px-6 sm:px-8 py-5 border-t border-border dark:border-zinc-800 bg-muted/30 dark:bg-zinc-800/30">
+            <button type="button" onclick="closeFormModal()"
+              class="inline-flex items-center rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-4 h-10 text-sm font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all">Cancel</button>
+            <button type="submit" id="form-submit-btn"
+              class="btn-primary inline-flex items-center gap-2 rounded-lg px-5 h-10 text-sm shadow-sm transition-all btn-press">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              <span>Create Rule</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function toggleTheme() {
+      var isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    }
+
+    // --- CSRF for htmx ---
+    function getCsrfTokenFromCookie() {
+      var m = document.cookie.match(/(?:^|; )mailrelay_csrf=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : null;
+    }
+
+    if (window.htmx) {
+      htmx.on('configRequest', function(evt) {
+        var token = getCsrfTokenFromCookie();
+        if (token) {
+          evt.detail.headers['X-CSRF-Token'] = token;
+        }
+      });
+    }
+
+    // Current rule being viewed in detail modal
+    var currentRuleEl = null;
+
+    // ===== Detail Modal =====
+    function openDetailModal(el) {
+      currentRuleEl = el;
+      var id = el.dataset.ruleId;
+      var name = el.dataset.ruleName;
+      var enabled = el.dataset.ruleEnabled === 'true';
+      var method = el.dataset.ruleWebhookMethod;
+      var url = el.dataset.ruleWebhookUrl;
+      var headers = el.dataset.ruleWebhookHeaders;
+      var tmpl = el.dataset.ruleWebhookTemplate;
+
+      document.getElementById('detail-name').textContent = name;
+
+      // Status dot
+      var dotHtml = enabled
+        ? '<span class="relative flex h-2.5 w-2.5 shrink-0"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>'
+        : '<span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-zinc-300 dark:bg-zinc-600"></span>';
+      document.getElementById('detail-status-dot').innerHTML = dotHtml;
+
+      // Match criteria
+      var matchHtml = '';
+      var matchFields = [
+        { key: 'ruleMatchToEmail', label: 'to', color: 'indigo' },
+        { key: 'ruleMatchFromEmail', label: 'from', color: 'violet' },
+        { key: 'ruleMatchSubject', label: 'subj', color: 'amber' },
+        { key: 'ruleMatchToDomain', label: 'to_dom', color: 'cyan' },
+        { key: 'ruleMatchFromDomain', label: 'from_dom', color: 'rose' }
+      ];
+      var hasMatch = false;
+      matchFields.forEach(function(f) {
+        var val = el.dataset[f.key];
+        if (val) {
+          hasMatch = true;
+          matchHtml += '<span class="inline-flex items-center rounded-md bg-' + f.color + '-50 dark:bg-' + f.color + '-950 px-2 py-0.5 text-xs font-medium text-' + f.color + '-700 dark:text-' + f.color + '-400 ring-1 ring-inset ring-' + f.color + '-600/10 dark:ring-' + f.color + '-500/20">' + f.label + ': ' + escapeHtml(val) + '</span>';
+        }
+      });
+      if (!hasMatch) {
+        matchHtml = '<span class="inline-flex items-center rounded-md bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/10 dark:ring-zinc-500/20 italic">catch-all — matches all emails</span>';
+      }
+      document.getElementById('detail-match').innerHTML = matchHtml;
+
+      // Webhook
+      document.getElementById('detail-method').textContent = method;
+      document.getElementById('detail-url').textContent = url;
+
+      var headersSection = document.getElementById('detail-headers-section');
+      if (headers) {
+        headersSection.classList.remove('hidden');
+        document.getElementById('detail-headers').textContent = headers;
+      } else {
+        headersSection.classList.add('hidden');
+      }
+
+      var templateSection = document.getElementById('detail-template-section');
+      if (tmpl) {
+        templateSection.classList.remove('hidden');
+        document.getElementById('detail-template').textContent = tmpl;
+      } else {
+        templateSection.classList.add('hidden');
+      }
+
+      // Toggle button
+      var toggleForm = document.getElementById('detail-toggle-form');
+      toggleForm.action = '/rules/' + id + '/toggle';
+      var toggleBtn = document.getElementById('detail-toggle-btn');
+      if (enabled) {
+        toggleBtn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5" /></svg> Disable';
+      } else {
+        toggleBtn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" /></svg> Enable';
+      }
+
+      // Delete button
+      var deleteBtn = document.getElementById('detail-delete-btn');
+      deleteBtn.setAttribute('hx-delete', '/rules/' + id);
+      deleteBtn.setAttribute('hx-confirm', "Delete rule '" + name + "'? This cannot be undone.");
+      htmx.process(deleteBtn);
+
+      document.getElementById('detail-modal').classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeDetailModal() {
+      var modal = document.getElementById('detail-modal');
+      var backdrop = document.getElementById('detail-backdrop');
+      var panel = document.getElementById('detail-panel');
+      backdrop.classList.add('modal-backdrop-out');
+      panel.classList.add('modal-panel-out');
+      setTimeout(function() {
+        modal.classList.add('hidden');
+        backdrop.classList.remove('modal-backdrop-out');
+        panel.classList.remove('modal-panel-out');
+        document.body.style.overflow = '';
+      }, 150);
+    }
+
+    // ===== Form Modal =====
+    function openFormModal(editData) {
+      var form = document.getElementById('rule-form');
+      var title = document.getElementById('form-title');
+      var submitBtn = document.getElementById('form-submit-btn');
+      var errorDiv = document.getElementById('form-error');
+      errorDiv.classList.add('hidden');
+
+      // Reset form
+      form.reset();
+
+      if (editData) {
+        title.textContent = 'Edit Rule';
+        submitBtn.innerHTML = '<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg><span>Save Changes</span>';
+        form.action = '/rules/' + editData.id;
+
+        document.getElementById('name').value = editData.name || '';
+        document.getElementById('match_to_email').value = editData.matchToEmail || '';
+        document.getElementById('match_from_email').value = editData.matchFromEmail || '';
+        document.getElementById('match_subject').value = editData.matchSubject || '';
+        document.getElementById('match_to_domain').value = editData.matchToDomain || '';
+        document.getElementById('match_from_domain').value = editData.matchFromDomain || '';
+        document.getElementById('webhook_url').value = editData.webhookUrl || '';
+        document.getElementById('webhook_method').value = editData.webhookMethod || 'POST';
+        document.getElementById('webhook_headers').value = editData.webhookHeaders || '';
+        document.getElementById('payload_template').value = editData.webhookTemplate || '';
+      } else {
+        title.textContent = 'Create Rule';
+        submitBtn.innerHTML = '<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg><span>Create Rule</span>';
+        form.action = '/rules';
+      }
+
+      document.getElementById('form-modal').classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      setTimeout(function() { document.getElementById('name').focus(); }, 100);
+    }
+
+    function closeFormModal() {
+      var modal = document.getElementById('form-modal');
+      var backdrop = document.getElementById('form-backdrop');
+      var panel = document.getElementById('form-panel');
+      backdrop.classList.add('modal-backdrop-out');
+      panel.classList.add('modal-panel-out');
+      setTimeout(function() {
+        modal.classList.add('hidden');
+        backdrop.classList.remove('modal-backdrop-out');
+        panel.classList.remove('modal-panel-out');
+        document.body.style.overflow = '';
+      }, 150);
+    }
+
+    function editFromDetail() {
+      if (!currentRuleEl) return;
+      var el = currentRuleEl;
+      var editData = {
+        id: el.dataset.ruleId,
+        name: el.dataset.ruleName,
+        matchToEmail: el.dataset.ruleMatchToEmail,
+        matchFromEmail: el.dataset.ruleMatchFromEmail,
+        matchSubject: el.dataset.ruleMatchSubject,
+        matchToDomain: el.dataset.ruleMatchToDomain,
+        matchFromDomain: el.dataset.ruleMatchFromDomain,
+        webhookUrl: el.dataset.ruleWebhookUrl,
+        webhookMethod: el.dataset.ruleWebhookMethod,
+        webhookHeaders: el.dataset.ruleWebhookHeaders,
+        webhookTemplate: el.dataset.ruleWebhookTemplate
+      };
+      // Close detail modal instantly, open form modal
+      document.getElementById('detail-modal').classList.add('hidden');
+      openFormModal(editData);
+    }
+
+    function escapeHtml(str) {
+      var div = document.createElement('div');
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+
+    // Close modals on Escape
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        if (!document.getElementById('form-modal').classList.contains('hidden')) {
+          closeFormModal();
+        } else if (!document.getElementById('detail-modal').classList.contains('hidden')) {
+          closeDetailModal();
+        }
+      }
+    });
+
+    // Auto-open form modal if there's an error from server-side validation
+    {{if .Error}}
+    (function() {
+      {{if .EditRule}}
+      openFormModal({
+        id: '{{.EditRule.ID}}',
+        name: '{{.EditRule.Name}}',
+        matchToEmail: '{{.EditRule.Match.ToEmail}}',
+        matchFromEmail: '{{.EditRule.Match.FromEmail}}',
+        matchSubject: '{{.EditRule.Match.Subject}}',
+        matchToDomain: '{{.EditRule.Match.ToDomain}}',
+        matchFromDomain: '{{.EditRule.Match.FromDomain}}',
+        webhookUrl: '{{.EditRule.Webhook.URL}}',
+        webhookMethod: '{{.EditRule.Webhook.Method}}',
+        webhookHeaders: '{{headersToText .EditRule.Webhook.Headers}}',
+        webhookTemplate: '{{.EditRule.Webhook.PayloadTemplate}}'
+      });
+      {{else if .FormRule}}
+      openFormModal();
+      var f = document.getElementById('rule-form');
+      document.getElementById('name').value = '{{.FormRule.Name}}';
+      document.getElementById('match_to_email').value = '{{.FormRule.Match.ToEmail}}';
+      document.getElementById('match_from_email').value = '{{.FormRule.Match.FromEmail}}';
+      document.getElementById('match_subject').value = '{{.FormRule.Match.Subject}}';
+      document.getElementById('match_to_domain').value = '{{.FormRule.Match.ToDomain}}';
+      document.getElementById('match_from_domain').value = '{{.FormRule.Match.FromDomain}}';
+      document.getElementById('webhook_url').value = '{{.FormRule.Webhook.URL}}';
+      document.getElementById('webhook_method').value = '{{.FormRule.Webhook.Method}}';
+      document.getElementById('webhook_headers').value = '{{headersToText .FormRule.Webhook.Headers}}';
+      document.getElementById('payload_template').value = '{{.FormRule.Webhook.PayloadTemplate}}';
+      {{end}}
+      var errorDiv = document.getElementById('form-error');
+      errorDiv.textContent = '{{.Error}}';
+      errorDiv.classList.remove('hidden');
+    })();
+    {{end}}
+  </script>
+</body>
+</html>
+{{end}}

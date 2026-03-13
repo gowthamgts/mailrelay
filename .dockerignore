@@ -1,0 +1,5 @@
+bin
+.ci
+*.sql
+tmp
+*.rdb

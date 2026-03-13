@@ -1,0 +1,46 @@
+services:
+  mailrelay:
+    image: ghcr.io/gowthamgts/mailrelay:latest
+    restart: unless-stopped
+
+    ports:
+      - "25:25"
+      - "127.0.0.1:2623:2623" # expose HTTP server only on localhost. recommended for security.
+
+    # All persistent state (database, raw emails, optional config) lives in /data.
+    # The image defaults: webui enabled, db at /data/mailrelay.db, emails in /data/emails.
+    # To use a config file, place it at /data/config.yaml or mount one separately.
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - mailrelay_data:/data
+
+    # Override any config value with MAILRELAY_ env vars.
+    # Use __ (double underscore) for nested keys, e.g. SMTP__DOMAIN -> smtp.domain.
+    environment:
+      - MAILRELAY_SMTP__DOMAIN=mx.example.com
+      # Enable HTTP auth (OIDC) for the web UI and HTTP endpoints (except /healthz and /metrics)
+      # - MAILRELAY_HTTP__AUTH__ENABLED=true
+      # - MAILRELAY_HTTP__AUTH__COOKIE_NAME=mailrelay_session
+      # - MAILRELAY_HTTP__AUTH__PROVIDERS__0__NAME=google
+      # - MAILRELAY_HTTP__AUTH__PROVIDERS__0__ISSUER_URL=https://accounts.google.com
+      # - MAILRELAY_HTTP__AUTH__PROVIDERS__0__CLIENT_ID=your-client-id
+      # - MAILRELAY_HTTP__AUTH__PROVIDERS__0__CLIENT_SECRET=your-client-secret
+      # - MAILRELAY_LOG_LEVEL=debug
+      # - MAILRELAY_WEBUI__RETENTION_DAYS=30
+
+    # Uncomment to mount a config file instead of (or alongside) env vars:
+    # volumes:
+    #   - ./config.yaml:/data/config.yaml:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2623/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mailrelay_data:
+    driver: local
+

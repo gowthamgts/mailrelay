@@ -1,0 +1,41 @@
+log_level: debug
+
+smtp:
+  addr: "127.0.0.1:2525"
+  domain: "localhost"
+  max_message_bytes: 26214400
+  max_recipients: 100
+  read_timeout: 60s
+  write_timeout: 60s
+
+auth:
+  spf: "off"
+  dkim: "off"
+  dmarc: "off"
+  arc: "off"
+
+http:
+  addr: "127.0.0.1:2623"
+  auth:
+    enabled: false # set to true only when at least one provider is configured below
+    cookie_name: "mailrelay_session"
+    cookie_same_site: "lax"
+    session_ttl: 12h
+    allowed_email_domains: []
+    # providers:
+    #   - name: "google"
+    #     issuer_url: "https://accounts.google.com"
+    #     client_id: "your-client-id"
+    #     client_secret: "your-client-secret"
+    #     scopes: [] # optional extra scopes
+
+retry:
+  max_retries: 1
+  initial_wait: 500ms
+  max_wait: 2s
+
+webui:
+  enabled: true
+  db_path: "mailrelay-dev.db"
+  retention_days: 7
+  raw_email_dir: "tmp/emails"

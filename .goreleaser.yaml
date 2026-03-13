@@ -1,0 +1,82 @@
+version: 2
+
+project_name: mailrelay
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: mailrelay
+    main: ./cmd/mailrelay
+    binary: mailrelay
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE.md
+      - config.example.yaml
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/gowthamgts/mailrelay:{{ .Version }}-amd64"
+      - "ghcr.io/gowthamgts/mailrelay:latest-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    goarch: amd64
+    dockerfile: Dockerfile.goreleaser
+  - image_templates:
+      - "ghcr.io/gowthamgts/mailrelay:{{ .Version }}-arm64"
+      - "ghcr.io/gowthamgts/mailrelay:latest-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    goarch: arm64
+    dockerfile: Dockerfile.goreleaser
+
+docker_manifests:
+  - name_template: "ghcr.io/gowthamgts/mailrelay:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/gowthamgts/mailrelay:{{ .Version }}-amd64"
+      - "ghcr.io/gowthamgts/mailrelay:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/gowthamgts/mailrelay:latest"
+    image_templates:
+      - "ghcr.io/gowthamgts/mailrelay:latest-amd64"
+      - "ghcr.io/gowthamgts/mailrelay:latest-arm64"
+
+release:
+  github:
+    owner: gowthamgts
+    name: mailrelay
+  draft: false
+  prerelease: auto

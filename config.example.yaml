@@ -1,0 +1,49 @@
+# Every value below can be overridden with a MAILRELAY_ environment variable.
+# Use __ (double underscore) for nesting: MAILRELAY_SMTP__ADDR -> smtp.addr
+# See README.md for the full env-var reference.
+
+log_level: info # MAILRELAY_LOG_LEVEL
+
+smtp:
+  addr: "0.0.0.0:25" # MAILRELAY_SMTP__ADDR
+  domain: "mailrelay.example.com" # MAILRELAY_SMTP__DOMAIN
+  max_message_bytes: 26214400 # 25MB
+  max_recipients: 5
+  read_timeout: 60s
+  write_timeout: 60s
+  allowed_recipients: # only accept mail to these patterns
+    - "*@alerts.example.com"
+    - "support@example.com"
+
+auth: # each check can be "off", "log", or "enforce"
+  spf: enforce # MAILRELAY_AUTH__SPF    (reject on fail. use "log" for testing.)
+  dkim: enforce # MAILRELAY_AUTH__DKIM
+  dmarc: enforce # MAILRELAY_AUTH__DMARC
+  arc: enforce # MAILRELAY_AUTH__ARC
+
+http:
+  addr: "127.0.0.1:2623" # MAILRELAY_HTTP__ADDR (HTTP server for health checks, metrics, and web UI)
+  auth:
+    enabled: false # MAILRELAY_HTTP__AUTH__ENABLED (set to true only when at least one provider is configured below)
+    cookie_name: "mailrelay_session" # MAILRELAY_HTTP__AUTH__COOKIE_NAME
+    cookie_same_site: "lax" # MAILRELAY_HTTP__AUTH__COOKIE_SAME_SITE (lax, strict, none)
+    session_ttl: 12h # MAILRELAY_HTTP__AUTH__SESSION_TTL
+    session_secret: "" # MAILRELAY_HTTP__AUTH__SESSION_SECRET (optional, stable secret for sharing sessions across instances)
+    allowed_email_domains: [] # MAILRELAY_HTTP__AUTH__ALLOWED_EMAIL_DOMAINS (empty = any authenticated email)
+    # providers:
+    #   - name: "google"
+    #     issuer_url: "https://accounts.google.com"
+    #     client_id: "your-client-id"
+    #     client_secret: "your-client-secret"
+    #     scopes: [] # optional extra scopes
+
+retry:
+  max_retries: 3 # MAILRELAY_RETRY__MAX_RETRIES
+  initial_wait: 1s # MAILRELAY_RETRY__INITIAL_WAIT
+  max_wait: 30s # MAILRELAY_RETRY__MAX_WAIT
+
+webui:
+  enabled: false # MAILRELAY_WEBUI__ENABLED (Docker default: true)
+  db_path: "mailrelay.db" # MAILRELAY_WEBUI__DB_PATH (Docker default: /data/mailrelay.db)
+  retention_days: 7 # MAILRELAY_WEBUI__RETENTION_DAYS (0 = keep forever)
+  raw_email_dir: "" # MAILRELAY_WEBUI__RAW_EMAIL_DIR (Docker default: /data/emails)
