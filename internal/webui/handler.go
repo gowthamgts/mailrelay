@@ -377,7 +377,7 @@ func (h *Handler) handleDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") == "true" {
 		h.render(w, "detail_modal", data)
 	} else {
-		h.render(w, "detail", data)
+		http.Redirect(w, r, "/", http.StatusFound)
 	}
 }
 

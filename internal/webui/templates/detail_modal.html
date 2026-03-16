@@ -141,15 +141,22 @@
     <div class="card">
       <div class="px-4 py-3 border-b border-border dark:border-zinc-800 flex items-center justify-between">
         <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider">Body</h3>
-        <div class="flex rounded-lg bg-muted dark:bg-zinc-800 p-0.5">
-          {{if .Email.ParsedEmail.TextBody}}
-          <button onclick="showModalTab('text')" id="mbtn-text"
-            class="rounded-md px-2.5 py-1 text-xs font-medium {{if and .Email.ParsedEmail.TextBody (not .Email.ParsedEmail.HTMLBody)}}bg-white dark:bg-zinc-700 text-foreground dark:text-zinc-200 shadow-sm{{else}}text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200{{end}} transition-all">Text</button>
-          {{end}}
-          {{if .Email.ParsedEmail.HTMLBody}}
-          <button onclick="showModalTab('html')" id="mbtn-html"
-            class="rounded-md px-2.5 py-1 text-xs font-medium bg-white dark:bg-zinc-700 text-foreground dark:text-zinc-200 shadow-sm transition-all">HTML</button>
-          {{end}}
+        <div class="flex items-center gap-2">
+          <button onclick="copyModalBodyContent()" id="mbody-copy-btn"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 h-7 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">
+            <svg id="mbody-copy-icon" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+            <span id="mbody-copy-label">Copy</span>
+          </button>
+          <div class="flex rounded-lg bg-muted dark:bg-zinc-800 p-0.5">
+            {{if .Email.ParsedEmail.TextBody}}
+            <button onclick="showModalTab('text')" id="mbtn-text"
+              class="rounded-md px-2.5 py-1 text-xs font-medium {{if and .Email.ParsedEmail.TextBody (not .Email.ParsedEmail.HTMLBody)}}bg-white dark:bg-zinc-700 text-foreground dark:text-zinc-200 shadow-sm{{else}}text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200{{end}} transition-all">Text</button>
+            {{end}}
+            {{if .Email.ParsedEmail.HTMLBody}}
+            <button onclick="showModalTab('html')" id="mbtn-html"
+              class="rounded-md px-2.5 py-1 text-xs font-medium bg-white dark:bg-zinc-700 text-foreground dark:text-zinc-200 shadow-sm transition-all">HTML</button>
+            {{end}}
+          </div>
         </div>
       </div>
       <div class="p-4">
@@ -201,6 +208,11 @@
       <div class="px-4 py-3 border-b border-border dark:border-zinc-800 flex items-center justify-between">
         <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider">Raw Source</h3>
         <div class="flex items-center gap-2">
+          <button onclick="copyModalRawSource()" id="modal-raw-copy-btn"
+            class="hidden inline-flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 h-7 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">
+            <svg id="modal-raw-copy-icon" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
+            <span id="modal-raw-copy-label">Copy</span>
+          </button>
           <button onclick="toggleModalRawSource('{{.Email.ID}}')" id="modal-raw-toggle-btn"
             class="inline-flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 h-7 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">
             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" /></svg>
@@ -224,10 +236,13 @@
 <script>
 (function() {
   var modalRawLoaded = false;
+
   window.toggleModalRawSource = function(emailID) {
     var container = document.getElementById('modal-raw-source-content');
+    var copyBtn = document.getElementById('modal-raw-copy-btn');
     if (container.classList.contains('hidden')) {
       container.classList.remove('hidden');
+      copyBtn.classList.remove('hidden');
       if (!modalRawLoaded) {
         fetch('/emails/' + emailID + '/raw')
           .then(function(r) { return r.text(); })
@@ -238,7 +253,49 @@
       }
     } else {
       container.classList.add('hidden');
+      copyBtn.classList.add('hidden');
     }
+  };
+
+  window.copyModalRawSource = function() {
+    var pre = document.querySelector('#modal-raw-source-content pre');
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.textContent).then(function() {
+      var label = document.getElementById('modal-raw-copy-label');
+      var icon = document.getElementById('modal-raw-copy-icon');
+      label.textContent = 'Copied!';
+      icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />';
+      setTimeout(function() {
+        label.textContent = 'Copy';
+        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />';
+      }, 2000);
+    });
+  };
+
+  window.copyModalBodyContent = function() {
+    var tabs = document.querySelectorAll('.modal-tab-content');
+    var active = null;
+    tabs.forEach(function(el) { if (el.style.display !== 'none') active = active || el; });
+    if (!active) active = tabs[0];
+    if (!active) return;
+    var text = '';
+    var pre = active.querySelector('pre');
+    var iframe = active.querySelector('iframe');
+    if (pre) {
+      text = pre.textContent;
+    } else if (iframe) {
+      text = iframe.getAttribute('srcdoc') || '';
+    }
+    navigator.clipboard.writeText(text).then(function() {
+      var label = document.getElementById('mbody-copy-label');
+      var icon = document.getElementById('mbody-copy-icon');
+      label.textContent = 'Copied!';
+      icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />';
+      setTimeout(function() {
+        label.textContent = 'Copy';
+        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />';
+      }, 2000);
+    });
   };
 })();
 </script>
