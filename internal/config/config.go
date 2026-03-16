@@ -87,7 +87,6 @@ func defaults() *models.AppConfig {
 			SPF:   models.AuthModeLog,
 			DKIM:  models.AuthModeLog,
 			DMARC: models.AuthModeLog,
-			ARC:   models.AuthModeLog,
 		},
 		HTTP: models.HTTPConfig{
 			Addr: "127.0.0.1:2623",
@@ -124,8 +123,8 @@ func validate(cfg *models.AppConfig) error {
 		}
 	}
 
-	authModes := []*models.AuthMode{&cfg.Auth.SPF, &cfg.Auth.DKIM, &cfg.Auth.DMARC, &cfg.Auth.ARC}
-	authNames := []string{"spf", "dkim", "dmarc", "arc"}
+	authModes := []*models.AuthMode{&cfg.Auth.SPF, &cfg.Auth.DKIM, &cfg.Auth.DMARC}
+	authNames := []string{"spf", "dkim", "dmarc"}
 	for i, mode := range authModes {
 		switch *mode {
 		case "":

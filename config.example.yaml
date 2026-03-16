@@ -19,7 +19,6 @@ auth: # each check can be "off", "log", or "enforce"
   spf: enforce # MAILRELAY_AUTH__SPF    (reject on fail. use "log" for testing.)
   dkim: enforce # MAILRELAY_AUTH__DKIM
   dmarc: enforce # MAILRELAY_AUTH__DMARC
-  arc: enforce # MAILRELAY_AUTH__ARC
 
 http:
   addr: "127.0.0.1:2623" # MAILRELAY_HTTP__ADDR (HTTP server for health checks, metrics, and web UI)

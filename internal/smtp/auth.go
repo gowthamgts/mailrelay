@@ -148,24 +148,15 @@ func VerifyAuth(ctx context.Context, cfg models.AuthConfig, remoteAddr net.Addr,
 		fromDomain = parts[1]
 	}
 
-	// ARC check: must run before SPF/DKIM so that forwarded emails can use
-	// the ARC-preserved original auth results instead of a fresh live check
-	// against the forwarder's IP.
-	var arc arcChainResult
-	if cfg.ARC.Enabled() {
-		arc = checkARCChain(rawEmail)
-		if arc.passed {
-			result.ARC = models.AuthPass
-			slog.Info("ARC chain passed, will use preserved auth results", "from", from)
-		} else if bytes.Contains(rawEmail, []byte("ARC-Authentication-Results:")) {
-			result.ARC = models.AuthNone
-		}
-		metrics.AuthChecksTotal.WithLabelValues("arc", string(result.ARC)).Inc()
-		if cfg.ARC.Enforced() && result.ARC == models.AuthFail {
-			metrics.AuthEnforcementFailuresTotal.WithLabelValues("arc").Inc()
-			return result, fmt.Errorf("ARC check failed for %s", from)
-		}
+	// ARC is always checked — it is not user-configurable. It must run before
+	// SPF/DKIM so that forwarded emails can use the ARC-preserved original auth
+	// results instead of a fresh live check against the forwarder's IP.
+	arc := checkARCChain(rawEmail)
+	if arc.passed {
+		result.ARC = models.AuthPass
+		slog.Info("ARC chain passed, will use preserved auth results", "from", from)
 	}
+	metrics.AuthChecksTotal.WithLabelValues("arc", string(result.ARC)).Inc()
 
 	// SPF check.
 	// For forwarded emails with a valid ARC chain, use the ARC-preserved

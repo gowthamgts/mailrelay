@@ -268,6 +268,7 @@ func buildHandler(engine *rules.Engine, dispatcher *webhook.Dispatcher, store *s
 					Status:       res.Status,
 					StatusCode:   res.StatusCode,
 					ErrorMessage: res.Error,
+					ResponseBody: res.ResponseBody,
 					Attempts:     res.Attempts,
 				}
 				if err := store.SaveDelivery(ctx, delivery); err != nil {

@@ -412,6 +412,7 @@ func (h *Handler) handleReplay(w http.ResponseWriter, r *http.Request) {
 			Status:       res.Status,
 			StatusCode:   res.StatusCode,
 			ErrorMessage: res.Error,
+			ResponseBody: res.ResponseBody,
 			Attempts:     res.Attempts,
 		}
 		if err := h.store.SaveDelivery(r.Context(), delivery); err != nil {
@@ -658,7 +659,6 @@ func (h *Handler) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		"auth_spf":   new(models.AuthMode),
 		"auth_dkim":  new(models.AuthMode),
 		"auth_dmarc": new(models.AuthMode),
-		"auth_arc":   new(models.AuthMode),
 	}
 	for field, mode := range authFields {
 		val := models.AuthMode(r.FormValue(field))
@@ -705,7 +705,6 @@ func (h *Handler) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	h.config.Auth.SPF = *authFields["auth_spf"]
 	h.config.Auth.DKIM = *authFields["auth_dkim"]
 	h.config.Auth.DMARC = *authFields["auth_dmarc"]
-	h.config.Auth.ARC = *authFields["auth_arc"]
 	h.config.Retry.MaxRetries = maxRetries
 	h.config.Retry.InitialWait = time.Duration(initialWaitSec) * time.Second
 	h.config.Retry.MaxWait = time.Duration(maxWaitSec) * time.Second

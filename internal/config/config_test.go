@@ -80,7 +80,6 @@ func TestValidate(t *testing.T) {
 					SPF:   models.AuthModeLog,
 					DKIM:  "invalid",
 					DMARC: models.AuthModeOff,
-					ARC:   models.AuthModeEnforce,
 				},
 			},
 			"invalid mode",

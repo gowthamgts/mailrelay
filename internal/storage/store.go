@@ -109,6 +109,8 @@ func migrate(db *sql.DB) error {
 
 	// Add rejection_reason column to existing databases.
 	db.Exec(`ALTER TABLE emails ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''`)
+	// Add response_body column to existing databases.
+	db.Exec(`ALTER TABLE deliveries ADD COLUMN response_body TEXT NOT NULL DEFAULT ''`)
 
 	return nil
 }
@@ -219,17 +221,17 @@ func (s *Store) SaveDelivery(ctx context.Context, d *models.DeliveryRecord) erro
 	d.UpdatedAt = now
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO deliveries (id, email_id, rule_name, status, status_code, error_message, attempts, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO deliveries (id, email_id, rule_name, status, status_code, error_message, response_body, attempts, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ID, d.EmailID, d.RuleName, d.Status, d.StatusCode,
-		d.ErrorMessage, d.Attempts, d.CreatedAt, d.UpdatedAt,
+		d.ErrorMessage, d.ResponseBody, d.Attempts, d.CreatedAt, d.UpdatedAt,
 	)
 	return err
 }
 
 func (s *Store) GetDeliveriesForEmail(ctx context.Context, emailID string) ([]models.DeliveryRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, email_id, rule_name, status, status_code, error_message, attempts, created_at, updated_at
+		`SELECT id, email_id, rule_name, status, status_code, error_message, response_body, attempts, created_at, updated_at
 		 FROM deliveries WHERE email_id = ? ORDER BY created_at DESC`, emailID,
 	)
 	if err != nil {
@@ -241,7 +243,7 @@ func (s *Store) GetDeliveriesForEmail(ctx context.Context, emailID string) ([]mo
 	for rows.Next() {
 		var d models.DeliveryRecord
 		if err := rows.Scan(&d.ID, &d.EmailID, &d.RuleName, &d.Status, &d.StatusCode,
-			&d.ErrorMessage, &d.Attempts, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			&d.ErrorMessage, &d.ResponseBody, &d.Attempts, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		deliveries = append(deliveries, d)

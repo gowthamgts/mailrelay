@@ -102,6 +102,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 			result.Status = "rejected"
 			result.StatusCode = whErr.statusCode
 			result.Error = lastErr.Error()
+			result.ResponseBody = whErr.responseBody
 			return result
 		}
 
@@ -117,6 +118,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 		result.Error = lastErr.Error()
 		if whErr, ok := lastErr.(*webhookError); ok {
 			result.StatusCode = whErr.statusCode
+			result.ResponseBody = whErr.responseBody
 		}
 	}
 	return result
@@ -150,13 +152,14 @@ func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte)
 		return fmt.Errorf("sending request: %w", err)
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 
-	return &webhookError{statusCode: resp.StatusCode}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	return &webhookError{statusCode: resp.StatusCode, responseBody: string(body)}
 }
 
 func backoff(retry models.RetryConfig, attempt int) time.Duration {
@@ -194,7 +197,8 @@ func buildPayload(email *models.ParsedEmail, wh models.WebhookConfig) ([]byte, e
 }
 
 type webhookError struct {
-	statusCode int
+	statusCode   int
+	responseBody string
 }
 
 func (e *webhookError) Error() string {

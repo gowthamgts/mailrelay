@@ -106,6 +106,7 @@ type DeliveryRecord struct {
 	Status       string    `json:"status"`
 	StatusCode   int       `json:"status_code"`
 	ErrorMessage string    `json:"error_message,omitempty"`
+	ResponseBody string    `json:"response_body,omitempty"`
 	Attempts     int       `json:"attempts"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -113,11 +114,12 @@ type DeliveryRecord struct {
 
 // DeliveryResult is returned by the dispatcher after attempting a webhook.
 type DeliveryResult struct {
-	RuleName   string
-	Status     string // "success", "failed", "rejected", "error", "cancelled"
-	StatusCode int
-	Error      string
-	Attempts   int
+	RuleName     string
+	Status       string // "success", "failed", "rejected", "error", "cancelled"
+	StatusCode   int
+	Error        string
+	ResponseBody string
+	Attempts     int
 }
 
 // WebUIConfig controls the web UI and its backing store.
@@ -191,7 +193,7 @@ type SMTPConfig struct {
 	AllowedRecipients []string      `json:"allowed_recipients,omitempty" koanf:"allowed_recipients"`
 }
 
-// AuthMode controls the behavior of a single auth check (SPF, DKIM, DMARC, or ARC).
+// AuthMode controls the behavior of a single auth check (SPF, DKIM, or DMARC).
 //   - "off"     — skip the check entirely
 //   - "log"     — run the check, log the result, but never reject
 //   - "enforce" — run the check and reject the email on failure (SMTP 550)
@@ -207,11 +209,12 @@ func (m AuthMode) Enabled() bool  { return m != AuthModeOff }
 func (m AuthMode) Enforced() bool { return m == AuthModeEnforce }
 
 // AuthConfig controls email authentication verification.
+// ARC is not configurable — it is always verified to correctly handle
+// forwarded emails (see RFC 8617).
 type AuthConfig struct {
 	SPF   AuthMode `json:"spf" koanf:"spf"`
 	DKIM  AuthMode `json:"dkim" koanf:"dkim"`
 	DMARC AuthMode `json:"dmarc" koanf:"dmarc"`
-	ARC   AuthMode `json:"arc" koanf:"arc"`
 }
 
 // HTTPAuthProviderConfig represents a single OIDC/OAuth2 provider used to

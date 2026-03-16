@@ -91,10 +91,6 @@
           <span class="text-xs text-muted-foreground dark:text-zinc-500">DMARC</span>
           <span class="text-xs font-semibold {{if eq (printf "%s" $ar.DMARC) "pass"}}text-emerald-600 dark:text-emerald-400{{else if eq (printf "%s" $ar.DMARC) "fail"}}text-red-600 dark:text-red-400{{else}}text-muted-foreground dark:text-zinc-400{{end}}">{{$ar.DMARC}}</span>
         </div>
-        <div class="flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 px-2.5 py-1 bg-muted/30 dark:bg-zinc-800/50">
-          <span class="text-xs text-muted-foreground dark:text-zinc-500">ARC</span>
-          <span class="text-xs font-semibold {{if eq (printf "%s" $ar.ARC) "pass"}}text-emerald-600 dark:text-emerald-400{{else if eq (printf "%s" $ar.ARC) "fail"}}text-red-600 dark:text-red-400{{else}}text-muted-foreground dark:text-zinc-400{{end}}">{{$ar.ARC}}</span>
-        </div>
       </div>
     </div>
     {{end}}
@@ -129,6 +125,12 @@
           </div>
           {{if .ErrorMessage}}
           <p class="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 rounded-lg px-3 py-1.5 break-words ring-1 ring-inset ring-red-600/10 dark:ring-red-500/20">{{.ErrorMessage}}</p>
+          {{end}}
+          {{if .ResponseBody}}
+          <div class="mt-1">
+            <p class="text-xs font-medium text-muted-foreground dark:text-zinc-500 mb-1">Response body</p>
+            <pre class="text-xs text-foreground dark:text-zinc-300 whitespace-pre-wrap break-all font-mono bg-muted/50 dark:bg-zinc-800/50 rounded-lg px-3 py-1.5 max-h-48 overflow-auto ring-1 ring-inset ring-border dark:ring-zinc-700">{{.ResponseBody}}</pre>
+          </div>
           {{end}}
         </div>
         {{end}}

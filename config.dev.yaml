@@ -12,7 +12,6 @@ auth:
   spf: "off"
   dkim: "off"
   dmarc: "off"
-  arc: "off"
 
 http:
   addr: "127.0.0.1:2623"
