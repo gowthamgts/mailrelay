@@ -109,14 +109,47 @@ When `payload_template` is omitted, the full parsed email is sent as JSON:
   "subject": "Hello World",
   "text_body": "Plain text content",
   "html_body": "<p>HTML content</p>",
-  "attachments": [{ "filename": "report.pdf", "content_type": "application/pdf", "content": "base64..." }],
-  "auth_result": { "spf": "pass", "dkim": "pass", "dmarc": "pass", "arc": "none" },
+  "attachments": [
+    {
+      "filename": "report.pdf",
+      "content_type": "application/pdf",
+      "content": "base64..."
+    }
+  ],
+  "auth_result": {
+    "spf": "pass",
+    "dkim": "pass",
+    "dmarc": "pass",
+    "arc": "none"
+  },
   "envelope_from": "sender@example.com",
   "envelope_to": ["recipient@example.com"]
 }
 ```
 
-Custom templates use Go's `text/template` syntax with fields like `.From`, `.To`, `.Subject`, `.TextBody`, `.HTMLBody`, `.EnvelopeFrom`, `.EnvelopeTo`, `.Attachments`, and `.AuthResult`.
+Custom templates use Go's `text/template` syntax. Every field is pre-encoded as a JSON value, so you can embed it directly without worrying about escaping:
+
+| Template variable   | JSON type        |
+| ------------------- | ---------------- |
+| `{{.From}}`         | string           |
+| `{{.To}}`           | array of strings |
+| `{{.CC}}`           | array of strings |
+| `{{.Subject}}`      | string           |
+| `{{.TextBody}}`     | string           |
+| `{{.HTMLBody}}`     | string           |
+| `{{.Headers}}`      | object           |
+| `{{.Attachments}}`  | array of objects |
+| `{{.AuthResult}}`   | object           |
+| `{{.EnvelopeFrom}}` | string           |
+| `{{.EnvelopeTo}}`   | array of strings |
+
+Example:
+
+```
+{"text": {{.TextBody}}, "from": {{.From}}, "to": {{.To}}}
+```
+
+String fields like `.TextBody` output a quoted, properly escaped JSON string (e.g. `"hello\nworld"`), so do **not** add surrounding quotes in the template.
 
 ## Email authentication
 
@@ -137,9 +170,9 @@ Enable with `webui.enabled: true`. Served at `http://<http.addr>/`.
 
 ## Health check & metrics
 
-| Endpoint   | Description               |
-| ---------- | ------------------------- |
-| `/healthz` | Liveness probe — returns `ok` |
+| Endpoint   | Description                               |
+| ---------- | ----------------------------------------- |
+| `/healthz` | Liveness probe — returns `ok`             |
 | `/metrics` | Prometheus metrics (`mailrelay_*` prefix) |
 
 See [docs/prometheus.md](docs/prometheus.md) for the full list of exposed metrics. A ready-to-import [Grafana dashboard](docs/grafana-dashboard.json) is also included.

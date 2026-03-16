@@ -180,14 +180,67 @@ func (d *Dispatcher) getRetryConfig() models.RetryConfig {
 	return d.retry
 }
 
+// rawJSON is a pre-encoded JSON value that renders as-is in templates,
+// so {{.TextBody}} produces a valid JSON string literal (quoted + escaped)
+// rather than a raw Go string with unescaped newlines.
+type rawJSON []byte
+
+func (r rawJSON) String() string {
+	if r == nil {
+		return "null"
+	}
+	return string(r)
+}
+
+// emailTemplateData converts a ParsedEmail to a map keyed by Go field names
+// where every value is already JSON-encoded. This makes template variables
+// safe to embed directly in a JSON payload without further escaping.
+func emailTemplateData(email *models.ParsedEmail) (map[string]rawJSON, error) {
+	b, err := json.Marshal(email)
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return nil, err
+	}
+	// Re-map snake_case JSON keys to Go field names for ergonomic template access.
+	mapping := map[string]string{
+		"From":         "from",
+		"To":           "to",
+		"CC":           "cc",
+		"Subject":      "subject",
+		"TextBody":     "text_body",
+		"HTMLBody":     "html_body",
+		"Headers":      "headers",
+		"Attachments":  "attachments",
+		"AuthResult":   "auth_result",
+		"EnvelopeFrom": "envelope_from",
+		"EnvelopeTo":   "envelope_to",
+	}
+	data := make(map[string]rawJSON, len(mapping))
+	for goName, jsonKey := range mapping {
+		if v, ok := raw[jsonKey]; ok {
+			data[goName] = rawJSON(v)
+		} else {
+			data[goName] = rawJSON("null")
+		}
+	}
+	return data, nil
+}
+
 func buildPayload(email *models.ParsedEmail, wh models.WebhookConfig) ([]byte, error) {
 	if wh.PayloadTemplate != "" {
+		data, err := emailTemplateData(email)
+		if err != nil {
+			return nil, fmt.Errorf("preparing template data: %w", err)
+		}
 		tmpl, err := template.New("payload").Parse(wh.PayloadTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("parsing template: %w", err)
 		}
 		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, email); err != nil {
+		if err := tmpl.Execute(&buf, data); err != nil {
 			return nil, fmt.Errorf("executing template: %w", err)
 		}
 		return buf.Bytes(), nil
