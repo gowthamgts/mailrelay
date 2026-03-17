@@ -61,8 +61,11 @@ func TestBuildPayload(t *testing.T) {
 	})
 
 	t.Run("custom template", func(t *testing.T) {
+		// Template variables are pre-encoded JSON values (rawJSON), so string
+		// fields already include surrounding quotes. Use {{.From}} without extra
+		// quotes in the template.
 		wh := models.WebhookConfig{
-			PayloadTemplate: `{"from":"{{.From}}","subj":"{{.Subject}}"}`,
+			PayloadTemplate: `{"from":{{.From}},"subj":{{.Subject}}}`,
 		}
 		payload, err := buildPayload(email, wh)
 		if err != nil {
