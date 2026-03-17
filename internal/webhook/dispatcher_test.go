@@ -61,8 +61,11 @@ func TestBuildPayload(t *testing.T) {
 	})
 
 	t.Run("custom template", func(t *testing.T) {
+		// Template variables are pre-encoded JSON values (rawJSON), so string
+		// fields already include surrounding quotes. Use {{.From}} without extra
+		// quotes in the template.
 		wh := models.WebhookConfig{
-			PayloadTemplate: `{"from":"{{.From}}","subj":"{{.Subject}}"}`,
+			PayloadTemplate: `{"from":{{.From}},"subj":{{.Subject}}}`,
 		}
 		payload, err := buildPayload(email, wh)
 		if err != nil {
@@ -93,7 +96,7 @@ func TestDispatchOneSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond})
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond}, "dev")
 	rule := models.Rule{
 		Name:    "test",
 		Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},
@@ -118,7 +121,7 @@ func TestDispatchOneRetryOn5xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond})
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond}, "dev")
 	rule := models.Rule{
 		Name:    "test",
 		Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},
@@ -139,7 +142,7 @@ func TestDispatchOneNoRetryOn4xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond})
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond}, "dev")
 	rule := models.Rule{
 		Name:    "test",
 		Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},
@@ -160,7 +163,7 @@ func TestDispatchOneContextCancellation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewDispatcher(models.RetryConfig{MaxRetries: 5, InitialWait: 100 * time.Millisecond, MaxWait: 1 * time.Second})
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 5, InitialWait: 100 * time.Millisecond, MaxWait: 1 * time.Second}, "dev")
 	rule := models.Rule{
 		Name:    "test",
 		Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},

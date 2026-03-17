@@ -17,6 +17,13 @@
       if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.classList.add('dark');
       }
+      // React to system preference changes when in system mode
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+        if (!localStorage.getItem('theme')) {
+          document.documentElement.classList.toggle('dark', e.matches);
+          if (typeof updateThemeSlider === 'function') updateThemeSlider();
+        }
+      });
     })();
   </script>
 
@@ -221,21 +228,7 @@
     .btn-press { transition: all 0.1s ease; }
     .btn-press:active { transform: translateY(1px); }
 
-    /* ── Status row left-border stripes ───────────────────── */
-    .row-status-green  { box-shadow: inset 3px 0 0 #34d399; }
-    .row-status-amber  { box-shadow: inset 3px 0 0 #fbbf24; }
-    .row-status-red    { box-shadow: inset 3px 0 0 #f87171; }
-    .row-status-orange { box-shadow: inset 3px 0 0 #fb923c; }
-    .row-status-blue   { box-shadow: inset 3px 0 0 #60a5fa; }
-    .row-status-gray   { box-shadow: inset 3px 0 0 #a1a1aa; }
-    .dark .row-status-green  { box-shadow: inset 3px 0 0 #10b981; }
-    .dark .row-status-amber  { box-shadow: inset 3px 0 0 #f59e0b; }
-    .dark .row-status-red    { box-shadow: inset 3px 0 0 #ef4444; }
-    .dark .row-status-orange { box-shadow: inset 3px 0 0 #f97316; }
-    .dark .row-status-blue   { box-shadow: inset 3px 0 0 #3b82f6; }
-    .dark .row-status-gray   { box-shadow: inset 3px 0 0 #52525b; }
-
-    /* ── Segmented nav override ───────────────────────────── */
+/* ── Segmented nav override ───────────────────────────── */
     .nav-tab-active {
       background: rgba(245,158,11,0.1);
       color: #b45309;
@@ -263,6 +256,20 @@
     }
     .dark .btn-primary:hover {
       filter: brightness(1.12);
+    }
+    .fade-in { animation: fadeIn 0.2s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── Theme slider active segment ──────────────────────── */
+    .theme-opt-active {
+      background: #ffffff;
+      color: #92400e;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.20), 0 0 0 1px rgba(0,0,0,0.08);
+    }
+    .dark .theme-opt-active {
+      background: rgba(255,255,255,0.22);
+      color: #fde68a;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.14);
     }
   </style>
 
