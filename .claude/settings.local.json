@@ -12,7 +12,8 @@
       "mcp__plugin_playwright_playwright__browser_evaluate",
       "mcp__plugin_playwright_playwright__browser_network_requests",
       "Bash(pkill -f \"bin/mailrelay\" 2>/dev/null; sleep 1; go build -o bin/mailrelay ./cmd/mailrelay 2>&1)",
-      "Bash(curl -s -D - http://localhost:2623/rules 2>&1 | grep -i 'set-cookie')"
+      "mcp__plugin_playwright_playwright__browser_hover",
+      "mcp__plugin_playwright_playwright__browser_console_messages"
     ]
   }
 }

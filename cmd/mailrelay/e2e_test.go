@@ -39,7 +39,7 @@ func newTestHarness(t *testing.T, smtpCfg models.SMTPConfig) *testHarness {
 		MaxRetries:  2,
 		InitialWait: 10 * time.Millisecond,
 		MaxWait:     50 * time.Millisecond,
-	})
+	}, "dev")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	handler := buildHandler(engine, dispatcher, nil, nil, "")
@@ -118,11 +118,11 @@ func webhookServer(t *testing.T) (url string, calls *atomic.Int32, bodies func()
 	var captured [][]byte
 	var cnt atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cnt.Add(1)
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		captured = append(captured, b)
 		mu.Unlock()
+		cnt.Add(1) // increment AFTER body is stored so waitForCalls guarantees body visibility
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -975,7 +975,7 @@ func newTestHarnessWithAuth(t *testing.T, cfg models.SMTPConfig, authCfg models.
 		MaxRetries:  2,
 		InitialWait: 10 * time.Millisecond,
 		MaxWait:     50 * time.Millisecond,
-	})
+	}, "dev")
 	ctx, cancel := context.WithCancel(context.Background())
 	handler := buildHandler(engine, dispatcher, nil, nil, "")
 	srv := smtpserver.NewServer(ctx, cfg, authCfg, handler)
@@ -1014,7 +1014,7 @@ func newTestHarnessWithStore(t *testing.T, cfg models.SMTPConfig, authCfg models
 		MaxRetries:  1,
 		InitialWait: 10 * time.Millisecond,
 		MaxWait:     50 * time.Millisecond,
-	})
+	}, "dev")
 	ctx, cancel := context.WithCancel(context.Background())
 	handler := buildHandler(engine, dispatcher, store, nil, "")
 	srv := smtpserver.NewServer(ctx, cfg, authCfg, handler)
@@ -1707,7 +1707,7 @@ func TestE2E_WebhookResponseBodyCaptured(t *testing.T) {
 		MaxRetries:  0,
 		InitialWait: 10 * time.Millisecond,
 		MaxWait:     50 * time.Millisecond,
-	})
+	}, "dev")
 	email := &models.ParsedEmail{
 		EnvelopeFrom: "s@example.com",
 		Subject:      "Validation test",

@@ -96,7 +96,7 @@ func TestDispatchOneSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond})
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond}, "dev")
 	rule := models.Rule{
 		Name:    "test",
 		Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},
@@ -121,7 +121,7 @@ func TestDispatchOneRetryOn5xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond})
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond}, "dev")
 	rule := models.Rule{
 		Name:    "test",
 		Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},
@@ -142,7 +142,7 @@ func TestDispatchOneNoRetryOn4xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond})
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 3, InitialWait: 10 * time.Millisecond, MaxWait: 50 * time.Millisecond}, "dev")
 	rule := models.Rule{
 		Name:    "test",
 		Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},
@@ -163,7 +163,7 @@ func TestDispatchOneContextCancellation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	d := NewDispatcher(models.RetryConfig{MaxRetries: 5, InitialWait: 100 * time.Millisecond, MaxWait: 1 * time.Second})
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 5, InitialWait: 100 * time.Millisecond, MaxWait: 1 * time.Second}, "dev")
 	rule := models.Rule{
 		Name:    "test",
 		Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},

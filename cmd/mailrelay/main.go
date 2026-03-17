@@ -28,6 +28,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+var version = "dev"
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
@@ -57,7 +59,7 @@ func main() {
 	}
 
 	engine := rules.NewEngine()
-	dispatcher := webhook.NewDispatcher(cfg.Retry)
+	dispatcher := webhook.NewDispatcher(cfg.Retry, version)
 
 	var store *storage.Store
 	var uiHandler *webui.Handler

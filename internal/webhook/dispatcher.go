@@ -19,16 +19,18 @@ import (
 
 // Dispatcher sends webhook requests for matched rules.
 type Dispatcher struct {
-	client  *http.Client
-	retryMu sync.RWMutex
-	retry   models.RetryConfig
+	client    *http.Client
+	retryMu   sync.RWMutex
+	retry     models.RetryConfig
+	userAgent string
 }
 
 // NewDispatcher creates a new webhook dispatcher.
-func NewDispatcher(retry models.RetryConfig) *Dispatcher {
+func NewDispatcher(retry models.RetryConfig, version string) *Dispatcher {
 	return &Dispatcher{
-		client: &http.Client{Timeout: 30 * time.Second},
-		retry:  retry,
+		client:    &http.Client{Timeout: 30 * time.Second},
+		retry:     retry,
+		userAgent: "mailrelay/" + version,
 	}
 }
 
@@ -134,6 +136,8 @@ func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
+
+	req.Header.Set("User-Agent", d.userAgent)
 
 	// Set default content type if not specified in headers.
 	hasContentType := false
