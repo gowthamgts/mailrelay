@@ -93,6 +93,7 @@ func TestDispatchOneSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called.Add(1)
 		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
 
@@ -103,9 +104,12 @@ func TestDispatchOneSuccess(t *testing.T) {
 	}
 	email := &models.ParsedEmail{Subject: "Test"}
 
-	d.dispatchOne(context.Background(), email, rule)
+	result := d.dispatchOne(context.Background(), email, rule)
 	if called.Load() != 1 {
 		t.Errorf("expected 1 call, got %d", called.Load())
+	}
+	if result.ResponseBody != `{"ok":true}` {
+		t.Errorf("ResponseBody = %q, want %q", result.ResponseBody, `{"ok":true}`)
 	}
 }
 

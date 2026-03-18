@@ -80,7 +80,7 @@
     return m ? decodeURIComponent(m[1]) : null;
   }
   if (window.htmx) {
-    htmx.on('configRequest', function(evt) {
+    htmx.on('htmx:configRequest', function(evt) {
       var token = getCsrfTokenFromCookie();
       if (token) {
         evt.detail.headers['X-CSRF-Token'] = token;

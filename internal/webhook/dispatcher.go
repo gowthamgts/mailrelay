@@ -86,7 +86,8 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 
 		start := time.Now()
 		metrics.WebhookInFlight.Inc()
-		lastErr = d.send(ctx, rule, payload)
+		var respBody string
+		respBody, lastErr = d.send(ctx, rule, payload)
 		metrics.WebhookInFlight.Dec()
 		metrics.WebhookDurationSeconds.WithLabelValues(rule.Name).Observe(time.Since(start).Seconds())
 
@@ -94,6 +95,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 			slog.Info("webhook delivered", "rule", rule.Name)
 			metrics.WebhookDispatchesTotal.WithLabelValues(rule.Name, "success").Inc()
 			result.Status = "success"
+			result.ResponseBody = respBody
 			return result
 		}
 
@@ -126,7 +128,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 	return result
 }
 
-func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte) error {
+func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte) (string, error) {
 	method := rule.Webhook.Method
 	if method == "" {
 		method = http.MethodPost
@@ -134,7 +136,7 @@ func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte)
 
 	req, err := http.NewRequestWithContext(ctx, method, rule.Webhook.URL, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
+		return "", fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("User-Agent", d.userAgent)
@@ -153,17 +155,16 @@ func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte)
 
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("sending request: %w", err)
+		return "", fmt.Errorf("sending request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		io.Copy(io.Discard, resp.Body)
-		return nil
+		return string(body), nil
 	}
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	return &webhookError{statusCode: resp.StatusCode, responseBody: string(body)}
+	return "", &webhookError{statusCode: resp.StatusCode, responseBody: string(body)}
 }
 
 func backoff(retry models.RetryConfig, attempt int) time.Duration {

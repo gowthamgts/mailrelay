@@ -290,8 +290,10 @@
               <div>
                 <label for="payload_template" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Payload Template <span class="text-muted-foreground dark:text-zinc-500 font-normal">(Go template, leave empty for full JSON)</span></label>
                 <textarea id="payload_template" name="payload_template" rows="3"
-                  placeholder='{"text": "Email from {{`{{.EnvelopeFrom}}`}}: {{`{{.Subject}}`}}"}'
+                  placeholder='{"text": {{`{{.TextBody}}`}}, "from": {{`{{.From}}`}}}'
                   class="input-field w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 py-2.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600"></textarea>
+                <div id="template-validation" class="mt-1.5 text-xs hidden"></div>
+                <p id="template-hint" class="mt-1.5 text-xs text-muted-foreground dark:text-zinc-500">Variables are pre-encoded as JSON — do not wrap them in quotes. e.g. <code class="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">{{`{{.Subject}}`}}</code> not <code class="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">"{{`{{.Subject}}`}}"</code></p>
               </div>
             </div>
           </div>
@@ -443,6 +445,14 @@
         form.action = '/rules';
       }
 
+      // Run template validation for pre-filled data
+      var tmplValue = document.getElementById('payload_template').value;
+      if (tmplValue.trim()) {
+        renderTemplateValidation(validatePayloadTemplate(tmplValue));
+      } else {
+        renderTemplateValidation({ errors: [], warnings: [] });
+      }
+
       document.getElementById('form-modal').classList.remove('hidden');
       document.body.style.overflow = 'hidden';
       setTimeout(function() { document.getElementById('name').focus(); }, 100);
@@ -497,6 +507,178 @@
         } else if (!document.getElementById('detail-modal').classList.contains('hidden')) {
           closeDetailModal();
         }
+      }
+    });
+
+    // ===== Payload Template Validator =====
+    var VALID_TEMPLATE_VARS = ['From', 'To', 'CC', 'Subject', 'TextBody', 'HTMLBody', 'Headers', 'Attachments', 'AuthResult', 'EnvelopeFrom', 'EnvelopeTo'];
+
+    // Sample values for JSON validation: strings get quoted, arrays/objects get structure
+    var SAMPLE_VALUES = {
+      From: '"test@example.com"',
+      To: '["a@b.com"]',
+      CC: '["c@d.com"]',
+      Subject: '"Test Subject"',
+      TextBody: '"Hello world"',
+      HTMLBody: '"<p>Hello</p>"',
+      Headers: '{"X-Test":"value"}',
+      Attachments: '[]',
+      AuthResult: '{"spf":"pass"}',
+      EnvelopeFrom: '"test@example.com"',
+      EnvelopeTo: '["a@b.com"]'
+    };
+
+    // String-type variables (the ones that output with quotes already included)
+    var STRING_VARS = ['From', 'Subject', 'TextBody', 'HTMLBody', 'EnvelopeFrom'];
+
+    function validatePayloadTemplate(value) {
+      var errors = [];
+      var warnings = [];
+
+      if (!value.trim()) return { errors: errors, warnings: warnings };
+
+      // 1. Check for unmatched template delimiters
+      var openCount = (value.match(/\{\{/g) || []).length;
+      var closeCount = (value.match(/\}\}/g) || []).length;
+      if (openCount !== closeCount) {
+        errors.push('Unmatched template delimiters: ' + openCount + ' opening {{`{{`}} vs ' + closeCount + ' closing {{`}}`}}');
+        return { errors: errors, warnings: warnings };
+      }
+
+      // 2. Parse all template expressions
+      var exprRegex = /\{\{(.*?)\}\}/g;
+      var match;
+      var expressions = [];
+      while ((match = exprRegex.exec(value)) !== null) {
+        expressions.push({ full: match[0], inner: match[1].trim(), index: match.index });
+      }
+
+      // 3. Validate each template expression
+      for (var i = 0; i < expressions.length; i++) {
+        var expr = expressions[i];
+        var inner = expr.inner;
+
+        // Skip Go template actions (if, else, end, range, with, etc.)
+        if (/^(if|else|end|range|with|block|define|template)\b/.test(inner) || inner === '' || inner === '-' || /^\/\*/.test(inner)) {
+          continue;
+        }
+
+        // Check for simple variable access like .VarName
+        var varMatch = inner.match(/^\.(\w+)$/);
+        if (varMatch) {
+          var varName = varMatch[1];
+          if (VALID_TEMPLATE_VARS.indexOf(varName) === -1) {
+            errors.push('Unknown variable {{`{{`}}.' + varName + '{{`}}`}}. Valid variables: ' + VALID_TEMPLATE_VARS.join(', '));
+          }
+        }
+
+        // Check for piped expressions like .VarName | someFunc
+        var pipedMatch = inner.match(/^\.(\w+)\s*\|/);
+        if (pipedMatch) {
+          var pipedVar = pipedMatch[1];
+          if (VALID_TEMPLATE_VARS.indexOf(pipedVar) === -1) {
+            errors.push('Unknown variable {{`{{`}}.' + pipedVar + '{{`}}`}} in expression "' + inner + '"');
+          }
+        }
+      }
+
+      // 4. Check for double-quoting: "{{.Var}}" pattern
+      var doubleQuoteRegex = /"\{\{\s*\.(\w+)\s*\}\}"/g;
+      while ((match = doubleQuoteRegex.exec(value)) !== null) {
+        var dqVar = match[1];
+        if (STRING_VARS.indexOf(dqVar) !== -1) {
+          errors.push('Remove quotes around {{`{{`}}.' + dqVar + '{{`}}`}} — string variables already include JSON quotes. Use {{`{{`}}.' + dqVar + '{{`}}`}} instead of "{{`{{`}}.' + dqVar + '{{`}}`}}"');
+        }
+      }
+
+      // 5. Validate JSON structure by substituting template vars with sample values
+      if (errors.length === 0) {
+        var jsonTest = value;
+        // Replace template expressions with sample JSON values
+        jsonTest = jsonTest.replace(/\{\{\s*\.(\w+)\s*\}\}/g, function(m, varName) {
+          return SAMPLE_VALUES[varName] || '"__unknown__"';
+        });
+        // Remove any remaining template constructs (if/else/range/end etc.)
+        jsonTest = jsonTest.replace(/\{\{.*?\}\}/g, '');
+
+        try {
+          JSON.parse(jsonTest);
+        } catch (e) {
+          var parseMsg = e.message || String(e);
+          errors.push('Template does not produce valid JSON: ' + parseMsg);
+        }
+      }
+
+      return { errors: errors, warnings: warnings };
+    }
+
+    function renderTemplateValidation(result) {
+      var el = document.getElementById('template-validation');
+      var textarea = document.getElementById('payload_template');
+      var hint = document.getElementById('template-hint');
+      var submitBtn = document.getElementById('form-submit-btn');
+
+      if (result.errors.length === 0 && result.warnings.length === 0) {
+        el.classList.add('hidden');
+        el.innerHTML = '';
+        textarea.classList.remove('border-red-500', 'dark:border-red-500');
+        hint.classList.remove('hidden');
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        return;
+      }
+
+      hint.classList.add('hidden');
+      var html = '';
+      for (var i = 0; i < result.errors.length; i++) {
+        html += '<div class="flex items-start gap-1.5 text-red-600 dark:text-red-400 mb-1"><svg class="h-3.5 w-3.5 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg><span>' + escapeHtml(result.errors[i]) + '</span></div>';
+      }
+      for (var i = 0; i < result.warnings.length; i++) {
+        html += '<div class="flex items-start gap-1.5 text-amber-600 dark:text-amber-400 mb-1"><svg class="h-3.5 w-3.5 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" /></svg><span>' + escapeHtml(result.warnings[i]) + '</span></div>';
+      }
+      el.innerHTML = html;
+      el.classList.remove('hidden');
+
+      if (result.errors.length > 0) {
+        textarea.classList.add('border-red-500', 'dark:border-red-500');
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      } else {
+        textarea.classList.remove('border-red-500', 'dark:border-red-500');
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+    }
+
+    // Debounce helper
+    function debounce(fn, delay) {
+      var timer;
+      return function() {
+        var args = arguments;
+        clearTimeout(timer);
+        timer = setTimeout(function() { fn.apply(null, args); }, delay);
+      };
+    }
+
+    // Attach validator to textarea
+    var debouncedValidate = debounce(function() {
+      var value = document.getElementById('payload_template').value;
+      renderTemplateValidation(validatePayloadTemplate(value));
+    }, 300);
+
+    document.getElementById('payload_template').addEventListener('input', debouncedValidate);
+    document.getElementById('payload_template').addEventListener('paste', function() {
+      setTimeout(debouncedValidate, 0);
+    });
+
+    // Prevent form submission if template has errors
+    document.getElementById('rule-form').addEventListener('submit', function(e) {
+      var value = document.getElementById('payload_template').value;
+      var result = validatePayloadTemplate(value);
+      if (result.errors.length > 0) {
+        e.preventDefault();
+        renderTemplateValidation(result);
+        document.getElementById('payload_template').focus();
       }
     });
 
