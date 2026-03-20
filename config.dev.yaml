@@ -32,6 +32,8 @@ retry:
   max_retries: 1
   initial_wait: 500ms
   max_wait: 2s
+  timeout: 10s
+  retry_on_timeout: true
 
 webui:
   enabled: true

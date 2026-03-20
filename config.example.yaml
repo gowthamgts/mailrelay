@@ -40,6 +40,8 @@ retry:
   max_retries: 3 # MAILRELAY_RETRY__MAX_RETRIES
   initial_wait: 1s # MAILRELAY_RETRY__INITIAL_WAIT
   max_wait: 30s # MAILRELAY_RETRY__MAX_WAIT
+  timeout: 30s # MAILRELAY_RETRY__TIMEOUT (per-request HTTP timeout; 0 = no timeout; can be overridden per-webhook)
+  retry_on_timeout: true # MAILRELAY_RETRY__RETRY_ON_TIMEOUT (retry timed-out requests; can be overridden per-webhook)
 
 webui:
   enabled: false # MAILRELAY_WEBUI__ENABLED (Docker default: true)

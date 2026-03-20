@@ -36,9 +36,11 @@ func newTestHarness(t *testing.T, smtpCfg models.SMTPConfig) *testHarness {
 
 	engine := rules.NewEngine()
 	dispatcher := webhook.NewDispatcher(models.RetryConfig{
-		MaxRetries:  2,
-		InitialWait: 10 * time.Millisecond,
-		MaxWait:     50 * time.Millisecond,
+		MaxRetries:     2,
+		InitialWait:    10 * time.Millisecond,
+		MaxWait:        50 * time.Millisecond,
+		Timeout:        5 * time.Second,
+		RetryOnTimeout: true,
 	}, "dev")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -972,9 +974,11 @@ func newTestHarnessWithAuth(t *testing.T, cfg models.SMTPConfig, authCfg models.
 	t.Helper()
 	engine := rules.NewEngine()
 	dispatcher := webhook.NewDispatcher(models.RetryConfig{
-		MaxRetries:  2,
-		InitialWait: 10 * time.Millisecond,
-		MaxWait:     50 * time.Millisecond,
+		MaxRetries:     2,
+		InitialWait:    10 * time.Millisecond,
+		MaxWait:        50 * time.Millisecond,
+		Timeout:        5 * time.Second,
+		RetryOnTimeout: true,
 	}, "dev")
 	ctx, cancel := context.WithCancel(context.Background())
 	handler := buildHandler(engine, dispatcher, nil, nil, "")
@@ -1011,9 +1015,11 @@ func newTestHarnessWithStore(t *testing.T, cfg models.SMTPConfig, authCfg models
 
 	engine := rules.NewEngine()
 	dispatcher := webhook.NewDispatcher(models.RetryConfig{
-		MaxRetries:  1,
-		InitialWait: 10 * time.Millisecond,
-		MaxWait:     50 * time.Millisecond,
+		MaxRetries:     1,
+		InitialWait:    10 * time.Millisecond,
+		MaxWait:        50 * time.Millisecond,
+		Timeout:        5 * time.Second,
+		RetryOnTimeout: true,
 	}, "dev")
 	ctx, cancel := context.WithCancel(context.Background())
 	handler := buildHandler(engine, dispatcher, store, nil, "")
@@ -1704,9 +1710,11 @@ func TestE2E_WebhookResponseBodyCaptured(t *testing.T) {
 
 	// Dispatch directly through the dispatcher (no SMTP needed for this test).
 	d := webhook.NewDispatcher(models.RetryConfig{
-		MaxRetries:  0,
-		InitialWait: 10 * time.Millisecond,
-		MaxWait:     50 * time.Millisecond,
+		MaxRetries:     0,
+		InitialWait:    10 * time.Millisecond,
+		MaxWait:        50 * time.Millisecond,
+		Timeout:        5 * time.Second,
+		RetryOnTimeout: true,
 	}, "dev")
 	email := &models.ParsedEmail{
 		EnvelopeFrom: "s@example.com",

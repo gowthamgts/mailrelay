@@ -100,9 +100,11 @@ func defaults() *models.AppConfig {
 			ProtectMetrics: false,
 		},
 		Retry: models.RetryConfig{
-			MaxRetries:  3,
-			InitialWait: 1 * time.Second,
-			MaxWait:     30 * time.Second,
+			MaxRetries:     3,
+			InitialWait:    1 * time.Second,
+			MaxWait:        30 * time.Second,
+			Timeout:        30 * time.Second,
+			RetryOnTimeout: true,
 		},
 		WebUI: models.WebUIConfig{
 			Enabled:       false,

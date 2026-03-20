@@ -217,6 +217,18 @@ func NewHandler(store *storage.Store, engine *rules.Engine, dispatcher *webhook.
 		"durationSeconds": func(d time.Duration) int {
 			return int(d.Seconds())
 		},
+		"derefBool": func(b *bool) bool {
+			if b == nil {
+				return false
+			}
+			return *b
+		},
+		"derefInt": func(p *int) int {
+			if p == nil {
+				return 0
+			}
+			return *p
+		},
 		"dict": func(pairs ...any) map[string]any {
 			m := make(map[string]any, len(pairs)/2)
 			for i := 0; i+1 < len(pairs); i += 2 {
@@ -294,6 +306,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /rules/{id}", h.handleRuleUpdate)
 	mux.HandleFunc("DELETE /rules/{id}", h.handleRuleDelete)
 	mux.HandleFunc("POST /rules/{id}/toggle", h.handleRuleToggle)
+	mux.HandleFunc("POST /rules/test-webhook", h.handleTestWebhook)
 }
 
 func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
@@ -691,6 +704,12 @@ func (h *Handler) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		h.renderSettingsWithError(w, r, "Initial wait cannot exceed max wait.")
 		return
 	}
+	timeoutSec, err := strconv.Atoi(r.FormValue("retry_timeout_seconds"))
+	if err != nil || timeoutSec < 0 {
+		h.renderSettingsWithError(w, r, "Request timeout must be 0 (no timeout) or a positive number of seconds.")
+		return
+	}
+	retryOnTimeout := r.FormValue("retry_on_timeout") == "1"
 
 	// Validate retention days
 	retentionDays, err := strconv.Atoi(r.FormValue("retention_days"))
@@ -708,6 +727,8 @@ func (h *Handler) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	h.config.Retry.MaxRetries = maxRetries
 	h.config.Retry.InitialWait = time.Duration(initialWaitSec) * time.Second
 	h.config.Retry.MaxWait = time.Duration(maxWaitSec) * time.Second
+	h.config.Retry.Timeout = time.Duration(timeoutSec) * time.Second
+	h.config.Retry.RetryOnTimeout = retryOnTimeout
 	h.config.WebUI.RetentionDays = retentionDays
 
 	// Snapshot for persistence
@@ -771,9 +792,14 @@ func (h *Handler) handleRulesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.cfgMu.RLock()
+	retry := h.config.Retry
+	h.cfgMu.RUnlock()
+
 	data := map[string]any{
-		"Rules":     dbRules,
-		"CSRFToken": h.csrfToken(w, r),
+		"Rules":       dbRules,
+		"CSRFToken":   h.csrfToken(w, r),
+		"GlobalRetry": retry,
 	}
 	h.render(w, "rules", data)
 }
@@ -896,6 +922,29 @@ func (h *Handler) handleRuleToggle(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/rules", http.StatusSeeOther)
 }
 
+func (h *Handler) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	webhookURL := strings.TrimSpace(r.FormValue("webhook_url"))
+	method := strings.TrimSpace(r.FormValue("webhook_method"))
+	if webhookURL == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "URL is required"})
+		return
+	}
+
+	statusCode, err := h.dispatcher.TestConnectivity(r.Context(), webhookURL, method)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": err.Error(), "status_code": 0})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"success": true, "status_code": statusCode, "error": ""})
+}
+
 func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" {
@@ -936,6 +985,50 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 		}
 	}
 
+	wh := models.WebhookConfig{
+		URL:             webhookURL,
+		Method:          method,
+		Headers:         headers,
+		PayloadTemplate: payloadTemplate,
+	}
+
+	// Parse optional per-webhook overrides.
+	if v := strings.TrimSpace(r.FormValue("wh_timeout")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return nil, "Webhook timeout must be 0 (no timeout) or a positive number of seconds."
+		}
+		wh.Timeout = &n
+	}
+	if v := strings.TrimSpace(r.FormValue("wh_max_retries")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return nil, "Webhook max retries must be a non-negative number."
+		}
+		wh.MaxRetries = &n
+	}
+	if v := strings.TrimSpace(r.FormValue("wh_initial_wait")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return nil, "Webhook initial wait must be at least 1 second."
+		}
+		wh.InitialWait = &n
+	}
+	if v := strings.TrimSpace(r.FormValue("wh_max_wait")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return nil, "Webhook max wait must be at least 1 second."
+		}
+		wh.MaxWait = &n
+	}
+	if wh.InitialWait != nil && wh.MaxWait != nil && *wh.InitialWait > *wh.MaxWait {
+		return nil, "Webhook initial wait cannot exceed max wait."
+	}
+	if v := strings.TrimSpace(r.FormValue("wh_retry_on_timeout")); v != "" {
+		b := v == "yes"
+		wh.RetryOnTimeout = &b
+	}
+
 	rule := &models.RuleRecord{
 		Name: name,
 		Match: models.MatcherConfig{
@@ -945,12 +1038,7 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 			FromDomain: strings.TrimSpace(r.FormValue("match_from_domain")),
 			ToDomain:   strings.TrimSpace(r.FormValue("match_to_domain")),
 		},
-		Webhook: models.WebhookConfig{
-			URL:             webhookURL,
-			Method:          method,
-			Headers:         headers,
-			PayloadTemplate: payloadTemplate,
-		},
+		Webhook: wh,
 	}
 
 	return rule, ""
@@ -959,11 +1047,16 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 func (h *Handler) renderRulesWithError(w http.ResponseWriter, r *http.Request, errMsg string, rule *models.RuleRecord, isEdit bool) {
 	dbRules, _ := h.store.ListRules(r.Context())
 
+	h.cfgMu.RLock()
+	retry := h.config.Retry
+	h.cfgMu.RUnlock()
+
 	data := map[string]any{
-		"Rules":     dbRules,
-		"Error":     errMsg,
-		"FormRule":  rule,
-		"CSRFToken": h.csrfToken(w, r),
+		"Rules":       dbRules,
+		"Error":       errMsg,
+		"FormRule":    rule,
+		"CSRFToken":   h.csrfToken(w, r),
+		"GlobalRetry": retry,
 	}
 	if isEdit {
 		data["EditRule"] = rule

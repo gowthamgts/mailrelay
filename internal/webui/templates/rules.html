@@ -56,6 +56,11 @@
           data-rule-webhook-method="{{.Webhook.Method}}"
           data-rule-webhook-headers="{{headersToText .Webhook.Headers}}"
           data-rule-webhook-template="{{.Webhook.PayloadTemplate}}"
+          data-rule-webhook-timeout="{{if .Webhook.Timeout}}{{.Webhook.Timeout}}{{end}}"
+          data-rule-webhook-max-retries="{{if .Webhook.MaxRetries}}{{.Webhook.MaxRetries}}{{end}}"
+          data-rule-webhook-initial-wait="{{if .Webhook.InitialWait}}{{.Webhook.InitialWait}}{{end}}"
+          data-rule-webhook-max-wait="{{if .Webhook.MaxWait}}{{.Webhook.MaxWait}}{{end}}"
+          data-rule-webhook-retry-on-timeout="{{if .Webhook.RetryOnTimeout}}{{if derefBool .Webhook.RetryOnTimeout}}yes{{else}}no{{end}}{{end}}"
         >
           <div class="px-4 py-3.5 sm:px-5">
             <div class="flex items-start justify-between gap-3">
@@ -153,6 +158,12 @@
                 <div class="px-3.5 py-2.5">
                   <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider mb-1">Payload Template</p>
                   <pre id="detail-template" class="text-xs font-mono text-muted-foreground dark:text-zinc-400 whitespace-pre-wrap"></pre>
+                </div>
+              </div>
+              <div id="detail-overrides-section" class="hidden border-t border-border dark:border-zinc-700">
+                <div class="px-3.5 py-2.5">
+                  <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider mb-1">Per-Webhook Overrides</p>
+                  <div id="detail-overrides" class="text-xs text-muted-foreground dark:text-zinc-400 space-y-0.5"></div>
                 </div>
               </div>
             </div>
@@ -275,10 +286,18 @@
                 </div>
                 <div class="flex-1">
                   <label for="webhook_url" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">URL <span class="text-red-500">*</span></label>
-                  <input type="url" id="webhook_url" name="webhook_url"
-                    placeholder="https://hooks.slack.com/services/..."
-                    required
-                    class="input-field h-10 w-full rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-500">
+                  <div class="flex gap-2">
+                    <input type="url" id="webhook_url" name="webhook_url"
+                      placeholder="https://hooks.slack.com/services/..."
+                      required
+                      class="input-field h-10 w-full rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-500">
+                    <button type="button" id="test-webhook-btn" onclick="testWebhook()"
+                      class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 h-10 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">
+                      <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.981 0 13.789M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>
+                      Test
+                    </button>
+                  </div>
+                  <div id="test-webhook-result" class="mt-1.5 text-xs hidden"></div>
                 </div>
               </div>
               <div>
@@ -294,6 +313,53 @@
                   class="input-field w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 py-2.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600"></textarea>
                 <div id="template-validation" class="mt-1.5 text-xs hidden"></div>
                 <p id="template-hint" class="mt-1.5 text-xs text-muted-foreground dark:text-zinc-500">Variables are pre-encoded as JSON — do not wrap them in quotes. e.g. <code class="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">{{`{{.Subject}}`}}</code> not <code class="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">"{{`{{.Subject}}`}}"</code></p>
+              </div>
+            </div>
+          </div>
+
+          {{/* Advanced (per-webhook overrides) */}}
+          <div class="border-t border-border dark:border-zinc-800 px-6 sm:px-8 pt-4 pb-6">
+            <button type="button" onclick="toggleAdvanced()" class="flex items-center gap-2 text-sm font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 transition-colors">
+              <svg id="advanced-chevron" class="h-4 w-4 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+              Advanced
+              <span class="text-xs text-muted-foreground dark:text-zinc-500 font-normal">(per-webhook overrides)</span>
+            </button>
+            <div id="advanced-section" class="hidden mt-4">
+              <p class="text-xs text-muted-foreground dark:text-zinc-500 mb-4">Leave fields empty to use the global defaults from Settings.</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
+                <div>
+                  <label for="wh_timeout" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Timeout <span class="text-xs opacity-60">(sec, 0 = no timeout)</span></label>
+                  <input type="number" id="wh_timeout" name="wh_timeout" min="0" max="300"
+                    placeholder="{{durationSeconds .GlobalRetry.Timeout}} (global)"
+                    class="input-field h-10 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+                </div>
+                <div>
+                  <label for="wh_max_retries" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Max Retries</label>
+                  <input type="number" id="wh_max_retries" name="wh_max_retries" min="0" max="20"
+                    placeholder="{{.GlobalRetry.MaxRetries}} (global)"
+                    class="input-field h-10 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+                </div>
+                <div>
+                  <label for="wh_initial_wait" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Initial Wait <span class="text-xs opacity-60">(sec)</span></label>
+                  <input type="number" id="wh_initial_wait" name="wh_initial_wait" min="1" max="300"
+                    placeholder="{{durationSeconds .GlobalRetry.InitialWait}} (global)"
+                    class="input-field h-10 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+                </div>
+                <div>
+                  <label for="wh_max_wait" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Max Wait <span class="text-xs opacity-60">(sec)</span></label>
+                  <input type="number" id="wh_max_wait" name="wh_max_wait" min="1" max="3600"
+                    placeholder="{{durationSeconds .GlobalRetry.MaxWait}} (global)"
+                    class="input-field h-10 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600">
+                </div>
+                <div class="sm:col-span-2">
+                  <label for="wh_retry_on_timeout" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Retry on Timeout</label>
+                  <select id="wh_retry_on_timeout" name="wh_retry_on_timeout"
+                    class="input-field h-10 w-full max-w-xs appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 cursor-pointer">
+                    <option value="">Use global ({{if .GlobalRetry.RetryOnTimeout}}yes{{else}}no{{end}})</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -379,6 +445,26 @@
         templateSection.classList.add('hidden');
       }
 
+      // Per-webhook overrides
+      var overridesSection = document.getElementById('detail-overrides-section');
+      var overridesHtml = '';
+      var whTimeout = el.dataset.ruleWebhookTimeout;
+      var whMaxRetries = el.dataset.ruleWebhookMaxRetries;
+      var whInitialWait = el.dataset.ruleWebhookInitialWait;
+      var whMaxWait = el.dataset.ruleWebhookMaxWait;
+      var whRetryOnTimeout = el.dataset.ruleWebhookRetryOnTimeout;
+      if (whTimeout) overridesHtml += '<div>Timeout: <span class="font-mono">' + escapeHtml(whTimeout) + 's</span></div>';
+      if (whMaxRetries) overridesHtml += '<div>Max Retries: <span class="font-mono">' + escapeHtml(whMaxRetries) + '</span></div>';
+      if (whInitialWait) overridesHtml += '<div>Initial Wait: <span class="font-mono">' + escapeHtml(whInitialWait) + 's</span></div>';
+      if (whMaxWait) overridesHtml += '<div>Max Wait: <span class="font-mono">' + escapeHtml(whMaxWait) + 's</span></div>';
+      if (whRetryOnTimeout) overridesHtml += '<div>Retry on Timeout: <span class="font-mono">' + escapeHtml(whRetryOnTimeout) + '</span></div>';
+      if (overridesHtml) {
+        overridesSection.classList.remove('hidden');
+        document.getElementById('detail-overrides').innerHTML = overridesHtml;
+      } else {
+        overridesSection.classList.add('hidden');
+      }
+
       // Toggle button
       var toggleForm = document.getElementById('detail-toggle-form');
       toggleForm.action = '/rules/' + id + '/toggle';
@@ -424,6 +510,16 @@
       // Reset form
       form.reset();
 
+      // Reset advanced section
+      document.getElementById('advanced-section').classList.add('hidden');
+      document.getElementById('advanced-chevron').style.transform = '';
+      document.getElementById('wh_timeout').value = '';
+      document.getElementById('wh_max_retries').value = '';
+      document.getElementById('wh_initial_wait').value = '';
+      document.getElementById('wh_max_wait').value = '';
+      document.getElementById('wh_retry_on_timeout').value = '';
+      document.getElementById('test-webhook-result').classList.add('hidden');
+
       if (editData) {
         title.textContent = 'Edit Rule';
         submitBtn.innerHTML = '<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg><span>Save Changes</span>';
@@ -439,6 +535,19 @@
         document.getElementById('webhook_method').value = editData.webhookMethod || 'POST';
         document.getElementById('webhook_headers').value = editData.webhookHeaders || '';
         document.getElementById('payload_template').value = editData.webhookTemplate || '';
+
+        // Per-webhook overrides
+        if (editData.whTimeout) document.getElementById('wh_timeout').value = editData.whTimeout;
+        if (editData.whMaxRetries) document.getElementById('wh_max_retries').value = editData.whMaxRetries;
+        if (editData.whInitialWait) document.getElementById('wh_initial_wait').value = editData.whInitialWait;
+        if (editData.whMaxWait) document.getElementById('wh_max_wait').value = editData.whMaxWait;
+        if (editData.whRetryOnTimeout) document.getElementById('wh_retry_on_timeout').value = editData.whRetryOnTimeout;
+
+        // Auto-expand advanced section if any override is set
+        if (editData.whTimeout || editData.whMaxRetries || editData.whInitialWait || editData.whMaxWait || editData.whRetryOnTimeout) {
+          document.getElementById('advanced-section').classList.remove('hidden');
+          document.getElementById('advanced-chevron').style.transform = 'rotate(90deg)';
+        }
       } else {
         title.textContent = 'Create Rule';
         submitBtn.innerHTML = '<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg><span>Create Rule</span>';
@@ -486,7 +595,12 @@
         webhookUrl: el.dataset.ruleWebhookUrl,
         webhookMethod: el.dataset.ruleWebhookMethod,
         webhookHeaders: el.dataset.ruleWebhookHeaders,
-        webhookTemplate: el.dataset.ruleWebhookTemplate
+        webhookTemplate: el.dataset.ruleWebhookTemplate,
+        whTimeout: el.dataset.ruleWebhookTimeout,
+        whMaxRetries: el.dataset.ruleWebhookMaxRetries,
+        whInitialWait: el.dataset.ruleWebhookInitialWait,
+        whMaxWait: el.dataset.ruleWebhookMaxWait,
+        whRetryOnTimeout: el.dataset.ruleWebhookRetryOnTimeout
       };
       // Close detail modal instantly, open form modal
       document.getElementById('detail-modal').classList.add('hidden');
@@ -681,6 +795,61 @@
         document.getElementById('payload_template').focus();
       }
     });
+
+    // ===== Advanced section toggle =====
+    function toggleAdvanced() {
+      var section = document.getElementById('advanced-section');
+      var chevron = document.getElementById('advanced-chevron');
+      if (section.classList.contains('hidden')) {
+        section.classList.remove('hidden');
+        chevron.style.transform = 'rotate(90deg)';
+      } else {
+        section.classList.add('hidden');
+        chevron.style.transform = '';
+      }
+    }
+
+    // ===== Test Webhook Connectivity =====
+    function testWebhook() {
+      var url = document.getElementById('webhook_url').value.trim();
+      var method = document.getElementById('webhook_method').value;
+      var resultDiv = document.getElementById('test-webhook-result');
+      var btn = document.getElementById('test-webhook-btn');
+
+      if (!url) {
+        resultDiv.innerHTML = '<span class="text-red-600 dark:text-red-400">Please enter a URL first.</span>';
+        resultDiv.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<svg class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Testing...';
+      resultDiv.classList.add('hidden');
+
+      var formData = new FormData();
+      formData.append('webhook_url', url);
+      formData.append('webhook_method', method);
+      formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+
+      fetch('/rules/test-webhook', { method: 'POST', body: formData })
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) {
+          if (data.success) {
+            resultDiv.innerHTML = '<span class="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Reachable (HTTP ' + data.status_code + ')</span>';
+          } else {
+            resultDiv.innerHTML = '<span class="text-red-600 dark:text-red-400 flex items-center gap-1"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg> Unreachable: ' + escapeHtml(data.error) + '</span>';
+          }
+          resultDiv.classList.remove('hidden');
+        })
+        .catch(function(err) {
+          resultDiv.innerHTML = '<span class="text-red-600 dark:text-red-400">Request failed: ' + escapeHtml(err.message) + '</span>';
+          resultDiv.classList.remove('hidden');
+        })
+        .finally(function() {
+          btn.disabled = false;
+          btn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.981 0 13.789M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg> Test';
+        });
+    }
 
     // Auto-open form modal if there's an error from server-side validation
     {{if .Error}}

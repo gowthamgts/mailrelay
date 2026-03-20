@@ -145,6 +145,52 @@ type WebhookConfig struct {
 	Method          string            `json:"method"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	PayloadTemplate string            `json:"payload_template,omitempty"`
+	// Per-webhook overrides (nil = use global default).
+	Timeout        *int  `json:"timeout,omitempty"`         // seconds
+	MaxRetries     *int  `json:"max_retries,omitempty"`
+	InitialWait    *int  `json:"initial_wait,omitempty"`    // seconds
+	MaxWait        *int  `json:"max_wait,omitempty"`        // seconds
+	RetryOnTimeout *bool `json:"retry_on_timeout,omitempty"`
+}
+
+// EffectiveTimeout returns the per-webhook timeout or the global default.
+func (w *WebhookConfig) EffectiveTimeout(global time.Duration) time.Duration {
+	if w.Timeout != nil {
+		return time.Duration(*w.Timeout) * time.Second
+	}
+	return global
+}
+
+// EffectiveMaxRetries returns the per-webhook max retries or the global default.
+func (w *WebhookConfig) EffectiveMaxRetries(global int) int {
+	if w.MaxRetries != nil {
+		return *w.MaxRetries
+	}
+	return global
+}
+
+// EffectiveInitialWait returns the per-webhook initial wait or the global default.
+func (w *WebhookConfig) EffectiveInitialWait(global time.Duration) time.Duration {
+	if w.InitialWait != nil {
+		return time.Duration(*w.InitialWait) * time.Second
+	}
+	return global
+}
+
+// EffectiveMaxWait returns the per-webhook max wait or the global default.
+func (w *WebhookConfig) EffectiveMaxWait(global time.Duration) time.Duration {
+	if w.MaxWait != nil {
+		return time.Duration(*w.MaxWait) * time.Second
+	}
+	return global
+}
+
+// EffectiveRetryOnTimeout returns the per-webhook retry_on_timeout or the global default.
+func (w *WebhookConfig) EffectiveRetryOnTimeout(global bool) bool {
+	if w.RetryOnTimeout != nil {
+		return *w.RetryOnTimeout
+	}
+	return global
 }
 
 // Rule pairs a matcher with a webhook action.
@@ -177,9 +223,11 @@ func (r *RuleRecord) ToRule() Rule {
 
 // RetryConfig controls exponential backoff for webhook delivery.
 type RetryConfig struct {
-	MaxRetries  int           `json:"max_retries" koanf:"max_retries"`
-	InitialWait time.Duration `json:"initial_wait" koanf:"initial_wait"`
-	MaxWait     time.Duration `json:"max_wait" koanf:"max_wait"`
+	MaxRetries     int           `json:"max_retries" koanf:"max_retries"`
+	InitialWait    time.Duration `json:"initial_wait" koanf:"initial_wait"`
+	MaxWait        time.Duration `json:"max_wait" koanf:"max_wait"`
+	Timeout        time.Duration `json:"timeout" koanf:"timeout"`
+	RetryOnTimeout bool          `json:"retry_on_timeout" koanf:"retry_on_timeout"`
 }
 
 // SMTPConfig defines SMTP server settings.

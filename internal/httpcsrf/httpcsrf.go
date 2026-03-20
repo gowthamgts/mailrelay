@@ -47,11 +47,8 @@ func Validate(r *http.Request) bool {
 		return h == want
 	}
 
-	// Fall back to form field.
-	if err := r.ParseForm(); err != nil {
-		return false
-	}
-	if v := r.Form.Get(formField); v != "" {
+	// Fall back to form field (FormValue handles both url-encoded and multipart).
+	if v := r.FormValue(formField); v != "" {
 		return v == want
 	}
 	return false

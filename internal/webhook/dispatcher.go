@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"sync"
 	"text/template"
@@ -28,7 +30,7 @@ type Dispatcher struct {
 // NewDispatcher creates a new webhook dispatcher.
 func NewDispatcher(retry models.RetryConfig, version string) *Dispatcher {
 	return &Dispatcher{
-		client:    &http.Client{Timeout: 30 * time.Second},
+		client:    &http.Client{},
 		retry:     retry,
 		userAgent: "mailrelay/" + version,
 	}
@@ -51,7 +53,21 @@ func (d *Dispatcher) Dispatch(ctx context.Context, email *models.ParsedEmail, ru
 
 func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail, rule models.Rule) models.DeliveryResult {
 	result := models.DeliveryResult{RuleName: rule.Name}
-	retry := d.getRetryConfig()
+	globalRetry := d.getRetryConfig()
+
+	// Resolve per-webhook overrides.
+	wh := &rule.Webhook
+	maxRetries := wh.EffectiveMaxRetries(globalRetry.MaxRetries)
+	initialWait := wh.EffectiveInitialWait(globalRetry.InitialWait)
+	maxWait := wh.EffectiveMaxWait(globalRetry.MaxWait)
+	timeout := wh.EffectiveTimeout(globalRetry.Timeout)
+	retryOnTimeout := wh.EffectiveRetryOnTimeout(globalRetry.RetryOnTimeout)
+
+	localRetry := models.RetryConfig{
+		MaxRetries:  maxRetries,
+		InitialWait: initialWait,
+		MaxWait:     maxWait,
+	}
 
 	payload, err := buildPayload(email, rule.Webhook)
 	if err != nil {
@@ -64,12 +80,12 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 	}
 
 	var lastErr error
-	for attempt := 0; attempt <= retry.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		result.Attempts = attempt + 1
 
 		if attempt > 0 {
 			metrics.WebhookRetriesTotal.WithLabelValues(rule.Name).Inc()
-			wait := backoff(retry, attempt)
+			wait := backoff(localRetry, attempt)
 			slog.Info("retrying webhook",
 				"rule", rule.Name, "attempt", attempt, "wait", wait)
 			select {
@@ -87,7 +103,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 		start := time.Now()
 		metrics.WebhookInFlight.Inc()
 		var respBody string
-		respBody, lastErr = d.send(ctx, rule, payload)
+		respBody, lastErr = d.send(ctx, rule, payload, timeout)
 		metrics.WebhookInFlight.Dec()
 		metrics.WebhookDurationSeconds.WithLabelValues(rule.Name).Observe(time.Since(start).Seconds())
 
@@ -110,12 +126,21 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 			return result
 		}
 
+		if isTimeoutError(lastErr) && !retryOnTimeout {
+			slog.Error("webhook timed out (retry_on_timeout disabled)",
+				"rule", rule.Name, "error", lastErr)
+			metrics.WebhookDispatchesTotal.WithLabelValues(rule.Name, "failure").Inc()
+			result.Status = "failed"
+			result.Error = lastErr.Error()
+			return result
+		}
+
 		slog.Warn("webhook attempt failed",
 			"rule", rule.Name, "attempt", attempt, "error", lastErr)
 	}
 
 	slog.Error("webhook delivery failed after retries",
-		"rule", rule.Name, "max_retries", retry.MaxRetries, "error", lastErr)
+		"rule", rule.Name, "max_retries", maxRetries, "error", lastErr)
 	metrics.WebhookDispatchesTotal.WithLabelValues(rule.Name, "failure").Inc()
 	result.Status = "failed"
 	if lastErr != nil {
@@ -128,13 +153,20 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 	return result
 }
 
-func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte) (string, error) {
+func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte, timeout time.Duration) (string, error) {
 	method := rule.Webhook.Method
 	if method == "" {
 		method = http.MethodPost
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, rule.Webhook.URL, bytes.NewReader(payload))
+	reqCtx := ctx
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		reqCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	req, err := http.NewRequestWithContext(reqCtx, method, rule.Webhook.URL, bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("creating request: %w", err)
 	}
@@ -252,6 +284,44 @@ func buildPayload(email *models.ParsedEmail, wh models.WebhookConfig) ([]byte, e
 	}
 
 	return json.Marshal(email)
+}
+
+// isTimeoutError checks whether err is a timeout (context deadline or net timeout).
+func isTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return false
+}
+
+// TestConnectivity sends a lightweight HTTP request to check if a webhook URL
+// is reachable. Returns the HTTP status code and any error.
+func (d *Dispatcher) TestConnectivity(ctx context.Context, url, method string) (int, error) {
+	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if method == "" {
+		method = http.MethodPost
+	}
+
+	req, err := http.NewRequestWithContext(testCtx, method, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return 0, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("User-Agent", d.userAgent)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	io.ReadAll(io.LimitReader(resp.Body, 1024)) // drain body
+	return resp.StatusCode, nil
 }
 
 type webhookError struct {

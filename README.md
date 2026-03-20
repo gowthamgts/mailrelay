@@ -86,6 +86,8 @@ See [`config.example.yaml`](config.example.yaml) for the full reference with all
 | `webui.enabled`             | `false`          |
 | `webui.retention_days`      | 7                |
 | `retry.max_retries`         | 3                |
+| `retry.timeout`             | 30s              |
+| `retry.retry_on_timeout`    | `true`           |
 | `auth.{spf,dkim,dmarc,arc}` | `log`            |
 
 ## Rule matching
@@ -97,6 +99,21 @@ Rules are created and managed via the web UI at `/rules` and stored in SQLite. E
 - Match fields: To Email, From Email, Subject, To Domain, From Domain
 - All non-empty matchers must match (AND logic); omitted fields match everything
 - Every matching rule fires its webhook (not first-match-wins)
+
+### Per-webhook overrides
+
+Each rule's webhook can optionally override the global retry/timeout settings. When creating or editing a rule in the web UI, expand the **Advanced** section to set:
+
+- **Timeout** (seconds, `0` = no timeout) — per-request HTTP timeout
+- **Max Retries** — maximum delivery attempts
+- **Initial Wait** / **Max Wait** (seconds) — exponential backoff bounds
+- **Retry on Timeout** — whether to retry when a request times out (Yes / No / Use global default)
+
+Empty fields fall back to the global defaults configured in Settings. These overrides are stored per-webhook and do not require a restart.
+
+### Test connectivity
+
+When creating or editing a rule, click the **Test** button next to the webhook URL to verify the endpoint is reachable. This sends a lightweight HTTP request with a 5-second timeout and reports success or the error encountered.
 
 ## Webhook payload
 

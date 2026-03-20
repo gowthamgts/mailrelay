@@ -39,9 +39,11 @@ func newUIHarness(t *testing.T) *uiHarness {
 
 	engine := rules.NewEngine()
 	dispatcher := webhook.NewDispatcher(models.RetryConfig{
-		MaxRetries:  1,
-		InitialWait: 10 * time.Millisecond,
-		MaxWait:     50 * time.Millisecond,
+		MaxRetries:     1,
+		InitialWait:    10 * time.Millisecond,
+		MaxWait:        50 * time.Millisecond,
+		Timeout:        5 * time.Second,
+		RetryOnTimeout: true,
 	}, "test")
 
 	cfg := &models.AppConfig{

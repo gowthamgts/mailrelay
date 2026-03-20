@@ -193,6 +193,22 @@
                 <input type="number" name="retry_max_wait_seconds" id="retry_max_wait_seconds" min="1" max="3600" value="{{durationSeconds .Config.Retry.MaxWait}}"
                   class="input-field h-9 w-24 rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3 text-sm font-mono text-right text-foreground dark:text-zinc-200">
               </div>
+              <div class="px-5 py-3 flex items-center justify-between gap-4">
+                <div class="shrink-0">
+                  <label for="retry_timeout_seconds" class="text-sm text-muted-foreground dark:text-zinc-400">Request Timeout <span class="text-xs opacity-60">(sec)</span></label>
+                  <p class="text-xs text-muted-foreground dark:text-zinc-600 mt-0.5">0 = no timeout</p>
+                </div>
+                <input type="number" name="retry_timeout_seconds" id="retry_timeout_seconds" min="0" max="300" value="{{durationSeconds .Config.Retry.Timeout}}"
+                  class="input-field h-9 w-24 rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3 text-sm font-mono text-right text-foreground dark:text-zinc-200">
+              </div>
+              <div class="px-5 py-3 flex items-center justify-between gap-4">
+                <label for="retry_on_timeout" class="text-sm text-muted-foreground dark:text-zinc-400 shrink-0">Retry on Timeout</label>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" name="retry_on_timeout" id="retry_on_timeout" value="1" {{if .Config.Retry.RetryOnTimeout}}checked{{end}}
+                    class="sr-only peer">
+                  <div class="w-9 h-5 bg-zinc-200 dark:bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
             </div>
           </div>
 
