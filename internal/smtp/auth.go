@@ -22,28 +22,40 @@ type arcChainResult struct {
 	passed bool
 	spf    models.AuthCheckResult
 	dkim   models.AuthCheckResult
+	dmarc  models.AuthCheckResult
 }
 
 // checkARCChain parses ARC-Seal and ARC-Authentication-Results headers to
 // determine whether the ARC chain is intact. If the highest-numbered
-// ARC-Seal has cv=pass, the chain is valid and the original SPF/DKIM results
-// are extracted from ARC-Authentication-Results: i=1.
+// ARC-Seal has a valid cv value, the chain is valid and the original
+// SPF/DKIM/DMARC results are extracted from ARC-Authentication-Results: i=1.
 //
-// This is used to correctly handle forwarded emails: the forwarding server's
-// IP will fail a fresh SPF check against the original sender's domain, but
-// the ARC chain preserves the original passing SPF result.
+// Per RFC 8617:
+//   - i=1 MUST have cv=none (no prior ARC chain existed).
+//   - i>1 MUST have cv=pass (prior chain was validated by the previous hop).
+//   - Any cv=fail on any seal invalidates the entire chain (RFC 8617 §5.2).
 func checkARCChain(rawEmail []byte) arcChainResult {
 	msg, err := mail.ReadMessage(bytes.NewReader(rawEmail))
 	if err != nil {
 		return arcChainResult{}
 	}
 
-	// Find the highest ARC instance whose seal has cv=pass.
+	// Per RFC 8617 §5.2: if any ARC-Seal has cv=fail, the whole chain is
+	// invalid — a downstream MTA already detected a broken chain.
+	for _, seal := range msg.Header["Arc-Seal"] {
+		if strings.EqualFold(arcStringParam(seal, "cv"), "fail") {
+			return arcChainResult{}
+		}
+	}
+
+	// Find the highest ARC instance with a valid cv value.
+	// Per RFC 8617: i=1 MUST have cv=none; i>1 MUST have cv=pass.
 	maxValidInstance := 0
 	for _, seal := range msg.Header["Arc-Seal"] {
 		i := arcIntParam(seal, "i")
 		cv := arcStringParam(seal, "cv")
-		if i > 0 && strings.EqualFold(cv, "pass") && i > maxValidInstance {
+		validCV := strings.EqualFold(cv, "pass") || (i == 1 && strings.EqualFold(cv, "none"))
+		if i > 0 && validCV && i > maxValidInstance {
 			maxValidInstance = i
 		}
 	}
@@ -58,6 +70,7 @@ func checkARCChain(rawEmail []byte) arcChainResult {
 		if arcIntParam(aar, "i") == 1 {
 			res.spf = authResultValue(aar, "spf")
 			res.dkim = authResultValue(aar, "dkim")
+			res.dmarc = authResultValue(aar, "dmarc")
 			break
 		}
 	}
@@ -126,6 +139,58 @@ func authResultValue(s, method string) models.AuthCheckResult {
 	}
 }
 
+// parseHeaderFromDomain extracts the domain from the email's RFC5322 From:
+// header. DMARC requires the lookup and alignment check to use this domain,
+// not the SMTP envelope from domain (RFC 7489 §6.6.1).
+func parseHeaderFromDomain(rawEmail []byte) string {
+	msg, err := mail.ReadMessage(bytes.NewReader(rawEmail))
+	if err != nil {
+		return ""
+	}
+	fromHdr := msg.Header.Get("From")
+	if fromHdr == "" {
+		return ""
+	}
+	addrs, err := mail.ParseAddressList(fromHdr)
+	if err != nil || len(addrs) == 0 {
+		return ""
+	}
+	parts := strings.SplitN(addrs[0].Address, "@", 2)
+	if len(parts) == 2 {
+		return strings.ToLower(parts[1])
+	}
+	return ""
+}
+
+// orgDomain returns the organisational domain (eTLD+1 approximation) used in
+// DMARC relaxed-mode alignment. Without a Public Suffix List we approximate
+// by taking the last two labels (e.g. mail.example.com → example.com). This
+// is correct for most gTLDs (.com/.net/.org) but may be wrong for some
+// two-level ccTLDs (e.g. .co.uk). We accept this limitation rather than
+// pulling in a full PSL dependency.
+func orgDomain(domain string) string {
+	parts := strings.Split(strings.ToLower(domain), ".")
+	if len(parts) <= 2 {
+		return strings.ToLower(domain)
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
+}
+
+// domainAligns reports whether checkDomain passes DMARC alignment against
+// fromDomain. In relaxed mode (default) the organisational domains must match
+// (RFC 7489 §3.1). In strict mode the domains must be identical.
+func domainAligns(checkDomain, fromDomain string, relaxed bool) bool {
+	a := strings.ToLower(checkDomain)
+	b := strings.ToLower(fromDomain)
+	if a == b {
+		return true
+	}
+	if relaxed {
+		return orgDomain(a) == orgDomain(b)
+	}
+	return false
+}
+
 // VerifyAuth runs SPF, DKIM, DMARC, and ARC checks on the email.
 func VerifyAuth(ctx context.Context, cfg models.AuthConfig, remoteAddr net.Addr, from string, rawEmail []byte) (*models.AuthResult, error) {
 	result := &models.AuthResult{
@@ -143,9 +208,19 @@ func VerifyAuth(ctx context.Context, cfg models.AuthConfig, remoteAddr net.Addr,
 		ip = net.ParseIP(host)
 	}
 
-	fromDomain := ""
+	// envelopeFromDomain is from the SMTP MAIL FROM command, used for SPF
+	// and SPF-alignment in DMARC.
+	envelopeFromDomain := ""
 	if parts := strings.SplitN(from, "@", 2); len(parts) == 2 {
-		fromDomain = parts[1]
+		envelopeFromDomain = parts[1]
+	}
+
+	// hdrFromDomain is from the RFC5322 From: header, used for DMARC lookup
+	// and alignment (RFC 7489 §6.6.1). Fall back to envelope domain if the
+	// header is absent or unparseable.
+	hdrFromDomain := parseHeaderFromDomain(rawEmail)
+	if hdrFromDomain == "" {
+		hdrFromDomain = envelopeFromDomain
 	}
 
 	// ARC is always checked — it is not user-configurable. It must run before
@@ -158,15 +233,15 @@ func VerifyAuth(ctx context.Context, cfg models.AuthConfig, remoteAddr net.Addr,
 	}
 	metrics.AuthChecksTotal.WithLabelValues("arc", string(result.ARC)).Inc()
 
-	// SPF check.
+	// SPF check (RFC 7208).
 	// For forwarded emails with a valid ARC chain, use the ARC-preserved
 	// original SPF result rather than checking the forwarder's IP.
-	if cfg.SPF.Enabled() && ip != nil && fromDomain != "" {
+	if cfg.SPF.Enabled() && ip != nil && envelopeFromDomain != "" {
 		if arc.passed && arc.spf != models.AuthNone {
 			result.SPF = arc.spf
 			slog.Info("SPF result (ARC-preserved)", "result", result.SPF, "from", from)
 		} else {
-			spfResult, err := spf.CheckHostWithSender(ip, fromDomain, from)
+			spfResult, err := spf.CheckHostWithSender(ip, envelopeFromDomain, from)
 			if err != nil {
 				slog.Warn("SPF check error", "error", err, "from", from)
 			}
@@ -174,10 +249,17 @@ func VerifyAuth(ctx context.Context, cfg models.AuthConfig, remoteAddr net.Addr,
 			case spf.Pass:
 				result.SPF = models.AuthPass
 			case spf.Neutral, spf.None:
-				// Neutral means the domain owner makes no assertion either way;
-				// treat it the same as no record rather than a failure.
+				// Neutral/None: domain makes no assertion; not a failure.
 				result.SPF = models.AuthNone
-			default:
+			case spf.TempError:
+				// RFC 7208 §2.6.6: transient DNS error; MUST NOT be treated as fail.
+				result.SPF = models.AuthNone
+				slog.Warn("SPF TempError (transient DNS failure)", "from", from)
+			case spf.PermError:
+				// RFC 7208 §2.6.7: permanent record error; treat as none, not fail.
+				result.SPF = models.AuthNone
+				slog.Warn("SPF PermError (misconfigured SPF record)", "from", from)
+			default: // spf.Fail, spf.SoftFail
 				result.SPF = models.AuthFail
 			}
 			slog.Info("SPF result", "result", result.SPF, "from", from, "ip", ip)
@@ -189,7 +271,11 @@ func VerifyAuth(ctx context.Context, cfg models.AuthConfig, remoteAddr net.Addr,
 		}
 	}
 
-	// DKIM check.
+	// DKIM check (RFC 6376).
+	// Per RFC 6376 §6.1: a message is considered authenticated by DKIM if at
+	// least one signature verifies successfully. We also collect the signing
+	// domains of all passing signatures for DMARC alignment below.
+	var dkimPassDomains []string
 	if cfg.DKIM.Enabled() {
 		verifications, err := dkim.Verify(bytes.NewReader(rawEmail))
 		if err != nil {
@@ -198,16 +284,15 @@ func VerifyAuth(ctx context.Context, cfg models.AuthConfig, remoteAddr net.Addr,
 		if len(verifications) == 0 {
 			result.DKIM = models.AuthNone
 		} else {
-			allPassed := true
 			for _, v := range verifications {
-				if v.Err != nil {
-					allPassed = false
+				if v.Err == nil {
+					result.DKIM = models.AuthPass
+					dkimPassDomains = append(dkimPassDomains, strings.ToLower(v.Domain))
+				} else {
 					slog.Warn("DKIM signature failed", "domain", v.Domain, "error", v.Err)
 				}
 			}
-			if allPassed {
-				result.DKIM = models.AuthPass
-			} else {
+			if result.DKIM != models.AuthPass {
 				result.DKIM = models.AuthFail
 			}
 		}
@@ -219,35 +304,53 @@ func VerifyAuth(ctx context.Context, cfg models.AuthConfig, remoteAddr net.Addr,
 		}
 	}
 
-	// DMARC check.
-	if cfg.DMARC.Enabled() && fromDomain != "" {
-		record, err := dmarc.Lookup(fromDomain)
-		if err != nil {
-			if dmarc.IsTempFail(err) {
-				slog.Warn("DMARC lookup temp failure", "domain", fromDomain, "error", err)
-			}
-			result.DMARC = models.AuthNone
+	// DMARC check (RFC 7489).
+	// The lookup domain is the RFC5322 header From domain, not the envelope
+	// from domain (RFC 7489 §6.6.1).
+	// A message passes DMARC if SPF or DKIM passes with proper identifier
+	// alignment to the header From domain (RFC 7489 §3.1).
+	if cfg.DMARC.Enabled() && hdrFromDomain != "" {
+		// For forwarded emails with a valid ARC chain, use the DMARC result
+		// preserved by the original receiving MTA if available. That server
+		// already performed the correct alignment check against the original
+		// message.
+		if arc.passed && arc.dmarc != models.AuthNone {
+			result.DMARC = arc.dmarc
+			slog.Info("DMARC result (ARC-preserved)", "result", result.DMARC, "from", from)
 		} else {
-			// DMARC passes if either SPF or DKIM passed with alignment.
-			spfAligned := result.SPF == models.AuthPass
-			dkimAligned := result.DKIM == models.AuthPass
-
-			if record.DKIMAlignment == "s" {
-				// Strict alignment: the DKIM domain must exactly match.
-				_ = dkimAligned // simplified — keep as-is for now
-			}
-			if record.SPFAlignment == "s" {
-				// Strict alignment: the envelope from domain must exactly match.
-				_ = spfAligned
-			}
-
-			if spfAligned || dkimAligned {
-				result.DMARC = models.AuthPass
+			record, err := dmarc.Lookup(hdrFromDomain)
+			if err != nil {
+				if dmarc.IsTempFail(err) {
+					slog.Warn("DMARC lookup temp failure", "domain", hdrFromDomain, "error", err)
+				}
+				result.DMARC = models.AuthNone
 			} else {
-				result.DMARC = models.AuthFail
+				spfRelaxed := record.SPFAlignment != dmarc.AlignmentStrict
+				dkimRelaxed := record.DKIMAlignment != dmarc.AlignmentStrict
+
+				// SPF alignment: envelope-from domain must align with header-from
+				// domain (RFC 7489 §3.1.1).
+				spfAligned := result.SPF == models.AuthPass &&
+					domainAligns(envelopeFromDomain, hdrFromDomain, spfRelaxed)
+
+				// DKIM alignment: at least one passing DKIM signature's d= domain
+				// must align with the header-from domain (RFC 7489 §3.1.2).
+				dkimAligned := false
+				for _, d := range dkimPassDomains {
+					if domainAligns(d, hdrFromDomain, dkimRelaxed) {
+						dkimAligned = true
+						break
+					}
+				}
+
+				if spfAligned || dkimAligned {
+					result.DMARC = models.AuthPass
+				} else {
+					result.DMARC = models.AuthFail
+				}
 			}
+			slog.Info("DMARC result", "result", result.DMARC, "from", from)
 		}
-		slog.Info("DMARC result", "result", result.DMARC, "from", from)
 		metrics.AuthChecksTotal.WithLabelValues("dmarc", string(result.DMARC)).Inc()
 		if cfg.DMARC.Enforced() && result.DMARC == models.AuthFail {
 			metrics.AuthEnforcementFailuresTotal.WithLabelValues("dmarc").Inc()

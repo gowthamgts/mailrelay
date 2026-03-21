@@ -17,7 +17,8 @@
       "mcp__plugin_playwright_playwright__browser_fill_form",
       "mcp__plugin_playwright_playwright__browser_snapshot",
       "Bash(go get:*)",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "Bash(go doc:*)"
     ]
   }
 }
