@@ -41,3 +41,6 @@ tmp
 
 config.yaml
 /mailrelay
+
+
+*.eml

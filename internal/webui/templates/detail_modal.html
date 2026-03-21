@@ -48,23 +48,33 @@
     {{/* Metadata */}}
     <div class="card">
       <dl class="divide-y divide-border dark:divide-zinc-800">
-        <div class="grid grid-cols-[80px_1fr] px-4 py-3">
+        <div class="grid grid-cols-[100px_1fr] px-4 py-3">
           <dt class="text-xs font-medium text-muted-foreground dark:text-zinc-500 pt-0.5">Subject</dt>
           <dd class="text-sm break-all dark:text-zinc-300">{{if .Email.Subject}}{{.Email.Subject}}{{else}}<span class="text-muted-foreground dark:text-zinc-500 italic">(no subject)</span>{{end}}</dd>
         </div>
-        <div class="grid grid-cols-[80px_1fr] px-4 py-3">
+        <div class="grid grid-cols-[100px_1fr] px-4 py-3">
           <dt class="text-xs font-medium text-muted-foreground dark:text-zinc-500 pt-0.5">From</dt>
-          <dd class="text-sm break-all dark:text-zinc-300">{{.Email.EnvelopeFrom}}</dd>
+          <dd class="text-sm break-all dark:text-zinc-300">{{.Email.DisplayFrom}}</dd>
         </div>
-        <div class="grid grid-cols-[80px_1fr] px-4 py-3">
+        <div class="grid grid-cols-[100px_1fr] px-4 py-3">
           <dt class="text-xs font-medium text-muted-foreground dark:text-zinc-500 pt-0.5">To</dt>
-          <dd class="text-sm break-all dark:text-zinc-300">{{joinStrings .Email.EnvelopeTo}}</dd>
+          <dd class="text-sm break-all dark:text-zinc-300">{{joinStrings .Email.DisplayTo}}</dd>
         </div>
-        <div class="grid grid-cols-[80px_1fr] px-4 py-3">
+        {{if .Email.IsForwarded}}
+        <div class="grid grid-cols-[100px_1fr] px-4 py-3 bg-amber-50/50 dark:bg-amber-950/20">
+          <dt class="text-xs font-medium text-amber-600 dark:text-amber-500 pt-0.5">Mail From</dt>
+          <dd class="text-xs font-mono break-all text-amber-700 dark:text-amber-400">{{.Email.EnvelopeFrom}}</dd>
+        </div>
+        <div class="grid grid-cols-[100px_1fr] px-4 py-3 bg-amber-50/50 dark:bg-amber-950/20">
+          <dt class="text-xs font-medium text-amber-600 dark:text-amber-500 pt-0.5">Rcpt To</dt>
+          <dd class="text-xs font-mono break-all text-amber-700 dark:text-amber-400">{{joinStrings .Email.EnvelopeTo}}</dd>
+        </div>
+        {{end}}
+        <div class="grid grid-cols-[100px_1fr] px-4 py-3">
           <dt class="text-xs font-medium text-muted-foreground dark:text-zinc-500 pt-0.5">Received</dt>
           <dd class="text-sm dark:text-zinc-300">{{formatTime .Email.ReceivedAt}}</dd>
         </div>
-        <div class="grid grid-cols-[80px_1fr] px-4 py-3">
+        <div class="grid grid-cols-[100px_1fr] px-4 py-3">
           <dt class="text-xs font-medium text-muted-foreground dark:text-zinc-500 pt-0.5">ID</dt>
           <dd class="text-xs font-mono text-muted-foreground dark:text-zinc-500 break-all">{{.Email.ID}}</dd>
         </div>
@@ -90,6 +100,10 @@
         <div class="flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 px-2.5 py-1 bg-muted/30 dark:bg-zinc-800/50">
           <span class="text-xs text-muted-foreground dark:text-zinc-500">DMARC</span>
           <span class="text-xs font-semibold {{if eq (printf "%s" $ar.DMARC) "pass"}}text-emerald-600 dark:text-emerald-400{{else if eq (printf "%s" $ar.DMARC) "fail"}}text-red-600 dark:text-red-400{{else}}text-muted-foreground dark:text-zinc-400{{end}}">{{$ar.DMARC}}</span>
+        </div>
+        <div class="flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 px-2.5 py-1 bg-muted/30 dark:bg-zinc-800/50">
+          <span class="text-xs text-muted-foreground dark:text-zinc-500">ARC</span>
+          <span class="text-xs font-semibold {{if eq (printf "%s" $ar.ARC) "pass"}}text-emerald-600 dark:text-emerald-400{{else if eq (printf "%s" $ar.ARC) "fail"}}text-red-600 dark:text-red-400{{else}}text-muted-foreground dark:text-zinc-400{{end}}">{{$ar.ARC}}</span>
         </div>
       </div>
     </div>

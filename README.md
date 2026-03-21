@@ -94,10 +94,29 @@ See [`config.example.yaml`](config.example.yaml) for the full reference with all
 
 Rules are created and managed via the web UI at `/rules` and stored in SQLite. Each rule pairs a **matcher** (which emails to act on) with a **webhook** (where to send them). Rules take effect immediately — no restart required.
 
+### Condition builder
+
+Each rule has zero or more conditions. Conditions can match against:
+
+| Field | Description |
+| ----- | ----------- |
+| `From` | Header From (original sender, e.g. `info@netflix.com`) |
+| `To` | Header To (original recipient) |
+| `CC` | Header CC |
+| `Mail From (envelope)` | SMTP `MAIL FROM` (may differ for forwarded emails) |
+| `Rcpt To (envelope)` | SMTP `RCPT TO` (actual delivery recipient) |
+| `Subject` | Email subject line |
+| `From Domain` | Domain part of header From |
+| `To Domain` | Domain part of header To |
+| `Mail From Domain` | Domain part of envelope From |
+| `Rcpt To Domain` | Domain part of envelope To |
+| `Header` | Match a specific email header by name and value pattern |
+| `Body` | Match text or HTML body content |
+
 - **Glob patterns** (default): `support@*`, `*.example.com`, `ALERT*`
 - **Regex patterns**: wrap in `/…/` for full regex, e.g. `/^\[URGENT\]/`
-- Match fields: To Email, From Email, Subject, To Domain, From Domain
-- All non-empty matchers must match (AND logic); omitted fields match everything
+- **Match mode**: "All conditions" (AND) or "Any condition" (OR)
+- No conditions = catch-all, matches all emails
 - Every matching rule fires its webhook (not first-match-wins)
 
 ### Per-webhook overrides
@@ -167,6 +186,15 @@ Example:
 ```
 
 String fields like `.TextBody` output a quoted, properly escaped JSON string (e.g. `"hello\nworld"`), so do **not** add surrounding quotes in the template.
+
+## Forwarded emails
+
+When an email is forwarded by an intermediate mail server (e.g. Fastmail, Gmail), the SMTP envelope addresses (`MAIL FROM` / `RCPT TO`) differ from the original email headers (`From` / `To`). Mailrelay tracks both:
+
+- **Header From / To** — the original sender and recipients from the email headers (e.g. `info@account.netflix.com`)
+- **Mail From / Rcpt To** — the SMTP envelope addresses used by the forwarding server (e.g. a SES bounce address)
+
+The web UI displays the header addresses as the primary From/To. When the email is forwarded (envelope differs from header), the SMTP envelope addresses are shown separately. ARC (Authenticated Received Chain) is always verified to preserve original SPF/DKIM results across forwarding hops.
 
 ## Email authentication
 

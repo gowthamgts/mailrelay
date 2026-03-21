@@ -503,7 +503,9 @@ func TestSaveAndGetRule(t *testing.T) {
 	rule := &models.RuleRecord{
 		Name:    "test-rule",
 		Enabled: true,
-		Match:   models.MatcherConfig{ToEmail: "user@example.com"},
+		Match: models.MatcherConfig{Conditions: []models.MatchCondition{
+			{Field: "rcpt_to", Pattern: "user@example.com"},
+		}},
 		Webhook: models.WebhookConfig{URL: "https://example.com/hook", Method: "POST"},
 	}
 	if err := s.SaveRule(ctx, rule); err != nil {
@@ -523,8 +525,8 @@ func TestSaveAndGetRule(t *testing.T) {
 	if !got.Enabled {
 		t.Error("expected Enabled = true")
 	}
-	if got.Match.ToEmail != "user@example.com" {
-		t.Errorf("Match.ToEmail = %q, want user@example.com", got.Match.ToEmail)
+	if len(got.Match.Conditions) != 1 || got.Match.Conditions[0].Pattern != "user@example.com" {
+		t.Errorf("Match.Conditions = %v, want [{rcpt_to user@example.com}]", got.Match.Conditions)
 	}
 	if got.Webhook.URL != "https://example.com/hook" {
 		t.Errorf("Webhook.URL = %q, want https://example.com/hook", got.Webhook.URL)

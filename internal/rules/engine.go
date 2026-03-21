@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"net/textproto"
 	"path"
 	"regexp"
 	"strings"
@@ -29,8 +30,6 @@ func (e *Engine) SetRules(rules []models.Rule) {
 }
 
 // Match returns all rules that match the given email.
-// All non-empty matchers within a rule must match (AND logic).
-// For multi-value fields (To addresses), any single match suffices (OR logic).
 func (e *Engine) Match(email *models.ParsedEmail) []models.Rule {
 	metrics.RulesEvaluatedTotal.Inc()
 
@@ -54,38 +53,61 @@ func (e *Engine) Match(email *models.ParsedEmail) []models.Rule {
 }
 
 func matchRule(m models.MatcherConfig, email *models.ParsedEmail) bool {
-	// Each non-empty field must match (AND logic).
-	if m.FromEmail != "" {
-		if !matchPattern(m.FromEmail, email.EnvelopeFrom) {
+	conds := m.Conditions
+	if len(conds) == 0 {
+		// No conditions = catch-all.
+		return true
+	}
+
+	mode := m.EffectiveMode()
+	for _, cond := range conds {
+		hit := matchCondition(cond, email)
+		if mode == "any" && hit {
+			return true
+		}
+		if mode == "all" && !hit {
 			return false
 		}
 	}
+	// "all" mode: all passed. "any" mode: none matched.
+	return mode == "all"
+}
 
-	if m.ToEmail != "" {
-		if !matchAny(m.ToEmail, email.EnvelopeTo) {
+// matchCondition evaluates a single condition against the email.
+func matchCondition(c models.MatchCondition, email *models.ParsedEmail) bool {
+	switch c.Field {
+	case "from":
+		return matchPattern(c.Pattern, email.From)
+	case "to":
+		return matchAny(c.Pattern, email.To)
+	case "cc":
+		return matchAny(c.Pattern, email.CC)
+	case "mail_from":
+		return matchPattern(c.Pattern, email.EnvelopeFrom)
+	case "rcpt_to":
+		return matchAny(c.Pattern, email.EnvelopeTo)
+	case "subject":
+		return matchPattern(c.Pattern, email.Subject)
+	case "from_domain":
+		return matchPattern(c.Pattern, email.HeaderFromDomain())
+	case "to_domain":
+		return matchAny(c.Pattern, email.HeaderToDomains())
+	case "mail_from_domain":
+		return matchPattern(c.Pattern, email.FromDomain())
+	case "rcpt_to_domain":
+		return matchAny(c.Pattern, email.ToDomains())
+	case "header":
+		if c.Header == "" {
 			return false
 		}
+		// mail.Header is a map[string][]string; use textproto canonical form.
+		values := email.Headers[textproto.CanonicalMIMEHeaderKey(c.Header)]
+		return matchAny(c.Pattern, values)
+	case "body":
+		return matchPattern(c.Pattern, email.TextBody) || matchPattern(c.Pattern, email.HTMLBody)
+	default:
+		return false
 	}
-
-	if m.Subject != "" {
-		if !matchPattern(m.Subject, email.Subject) {
-			return false
-		}
-	}
-
-	if m.FromDomain != "" {
-		if !matchPattern(m.FromDomain, email.FromDomain()) {
-			return false
-		}
-	}
-
-	if m.ToDomain != "" {
-		if !matchAny(m.ToDomain, email.ToDomains()) {
-			return false
-		}
-	}
-
-	return true
 }
 
 // matchAny returns true if the pattern matches any value in the list (OR logic).

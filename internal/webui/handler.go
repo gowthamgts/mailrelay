@@ -237,6 +237,17 @@ func NewHandler(store *storage.Store, engine *rules.Engine, dispatcher *webhook.
 			}
 			return m
 		},
+		"matchConfigJSON": func(m models.MatcherConfig) template.JS {
+			b, _ := json.Marshal(m)
+			return template.JS(b)
+		},
+		"conditionLabel": func(c models.MatchCondition) string {
+			label := c.Field
+			if c.Field == "header" && c.Header != "" {
+				label = c.Header
+			}
+			return label + ": " + c.Pattern
+		},
 	}
 
 	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.html")
@@ -1029,14 +1040,44 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 		wh.RetryOnTimeout = &b
 	}
 
+	// Parse condition-based matcher.
+	fields := r.Form["cond_field"]
+	patterns := r.Form["cond_pattern"]
+	headerKeys := r.Form["cond_header"]
+	mode := strings.TrimSpace(r.FormValue("match_mode"))
+	if mode != "any" {
+		mode = "all"
+	}
+
+	var conditions []models.MatchCondition
+	for i := 0; i < len(fields); i++ {
+		field := strings.TrimSpace(fields[i])
+		pattern := ""
+		if i < len(patterns) {
+			pattern = strings.TrimSpace(patterns[i])
+		}
+		headerKey := ""
+		if i < len(headerKeys) {
+			headerKey = strings.TrimSpace(headerKeys[i])
+		}
+		if field == "" || pattern == "" {
+			continue
+		}
+		cond := models.MatchCondition{Field: field, Pattern: pattern}
+		if field == "header" {
+			if headerKey == "" {
+				return nil, "Header conditions require a header name."
+			}
+			cond.Header = headerKey
+		}
+		conditions = append(conditions, cond)
+	}
+
 	rule := &models.RuleRecord{
 		Name: name,
 		Match: models.MatcherConfig{
-			ToEmail:    strings.TrimSpace(r.FormValue("match_to_email")),
-			FromEmail:  strings.TrimSpace(r.FormValue("match_from_email")),
-			Subject:    strings.TrimSpace(r.FormValue("match_subject")),
-			FromDomain: strings.TrimSpace(r.FormValue("match_from_domain")),
-			ToDomain:   strings.TrimSpace(r.FormValue("match_to_domain")),
+			Mode:       mode,
+			Conditions: conditions,
 		},
 		Webhook: wh,
 	}

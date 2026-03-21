@@ -487,25 +487,17 @@ func TestUI_DeleteRule(t *testing.T) {
 		t.Fatalf("goto rules: %v", err)
 	}
 
-	// Wait for the rule card to appear and click it to open the detail modal.
-	ruleCard, err := page.QuerySelector(fmt.Sprintf("[data-rule-name='%s']", ruleName))
-	if err != nil || ruleCard == nil {
-		t.Fatalf("rule card not found for %q", ruleName)
-	}
-	if err := ruleCard.Click(); err != nil {
-		t.Fatalf("click rule card: %v", err)
-	}
+	// Wait for the rule card to appear.
+	ruleCard := fmt.Sprintf("[data-rule-name='%s']", ruleName)
+	waitForSelector(t, page, ruleCard)
 
-	// Wait for the detail modal to appear.
-	waitForSelector(t, page, "#detail-modal:not(.hidden)")
-
-	// Click the delete button (#detail-delete-btn). The JS sets hx-delete and calls
-	// htmx.process() when the modal opens, so it's HTMX-enabled at this point.
-	if err := page.Click("#detail-delete-btn"); err != nil {
+	// Click the delete button on the rule card (dialog auto-accepted by newPage).
+	deleteBtn := fmt.Sprintf("[data-rule-name='%s'] button[hx-delete]", ruleName)
+	if err := page.Click(deleteBtn); err != nil {
 		t.Fatalf("click delete rule: %v", err)
 	}
 
-	// Wait for HTMX redirect to /rules and the detail modal to close.
+	// Wait for HTMX to process the delete and refresh the page.
 	time.Sleep(1500 * time.Millisecond)
 
 	// Verify rule is gone from database.

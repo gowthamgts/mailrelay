@@ -23,9 +23,18 @@ type ParsedEmail struct {
 	EnvelopeTo   []string `json:"envelope_to"`
 }
 
-// FromDomain extracts the domain part of the From address.
+// FromDomain extracts the domain part of the envelope From address.
 func (e *ParsedEmail) FromDomain() string {
 	parts := strings.SplitN(e.EnvelopeFrom, "@", 2)
+	if len(parts) == 2 {
+		return strings.ToLower(parts[1])
+	}
+	return ""
+}
+
+// HeaderFromDomain extracts the domain part of the header From address.
+func (e *ParsedEmail) HeaderFromDomain() string {
+	parts := strings.SplitN(e.From, "@", 2)
 	if len(parts) == 2 {
 		return strings.ToLower(parts[1])
 	}
@@ -37,6 +46,23 @@ func (e *ParsedEmail) ToDomains() []string {
 	seen := make(map[string]struct{})
 	var domains []string
 	for _, addr := range e.EnvelopeTo {
+		parts := strings.SplitN(addr, "@", 2)
+		if len(parts) == 2 {
+			d := strings.ToLower(parts[1])
+			if _, ok := seen[d]; !ok {
+				seen[d] = struct{}{}
+				domains = append(domains, d)
+			}
+		}
+	}
+	return domains
+}
+
+// HeaderToDomains returns deduplicated domains from the header To addresses.
+func (e *ParsedEmail) HeaderToDomains() []string {
+	seen := make(map[string]struct{})
+	var domains []string
+	for _, addr := range e.To {
 		parts := strings.SplitN(addr, "@", 2)
 		if len(parts) == 2 {
 			d := strings.ToLower(parts[1])
@@ -91,11 +117,35 @@ type EmailRecord struct {
 	ReceivedAt      time.Time    `json:"received_at"`
 	EnvelopeFrom    string       `json:"envelope_from"`
 	EnvelopeTo      []string     `json:"envelope_to"`
+	HeaderFrom      string       `json:"header_from"`
+	HeaderTo        []string     `json:"header_to"`
 	Subject         string       `json:"subject"`
 	Status          EmailStatus  `json:"status"`
 	RejectionReason string       `json:"rejection_reason,omitempty"`
 	ParsedEmail     *ParsedEmail `json:"parsed_email,omitempty"`
 	AuthResult      *AuthResult  `json:"auth_result,omitempty"`
+}
+
+// DisplayFrom returns the header From if available, otherwise the envelope From.
+func (r *EmailRecord) DisplayFrom() string {
+	if r.HeaderFrom != "" {
+		return r.HeaderFrom
+	}
+	return r.EnvelopeFrom
+}
+
+// DisplayTo returns the header To if available, otherwise the envelope To.
+func (r *EmailRecord) DisplayTo() []string {
+	if len(r.HeaderTo) > 0 {
+		return r.HeaderTo
+	}
+	return r.EnvelopeTo
+}
+
+// IsForwarded returns true when the envelope From differs from the header From,
+// indicating the email was forwarded by an intermediate mail server.
+func (r *EmailRecord) IsForwarded() bool {
+	return r.HeaderFrom != "" && r.HeaderFrom != r.EnvelopeFrom
 }
 
 // DeliveryRecord tracks a single webhook delivery attempt for an email.
@@ -130,13 +180,26 @@ type WebUIConfig struct {
 	RawEmailDir   string `json:"raw_email_dir" koanf:"raw_email_dir"`
 }
 
+// MatchCondition is a single condition in a rule's matcher.
+type MatchCondition struct {
+	Field   string `json:"field"`              // "from", "to", "cc", "mail_from", "rcpt_to", "subject", "header", "body"
+	Pattern string `json:"pattern"`            // glob or /regex/
+	Header  string `json:"header,omitempty"`   // header name, only used when Field is "header"
+}
+
 // MatcherConfig defines the matching criteria for a rule.
 type MatcherConfig struct {
-	ToEmail    string `json:"to_email"`
-	FromEmail  string `json:"from_email"`
-	Subject    string `json:"subject"`
-	FromDomain string `json:"from_domain"`
-	ToDomain   string `json:"to_domain"`
+	// Mode controls how conditions combine: "all" (AND, default) or "any" (OR).
+	Mode       string           `json:"mode,omitempty"`
+	Conditions []MatchCondition `json:"conditions,omitempty"`
+}
+
+// EffectiveMode returns "all" if Mode is empty.
+func (m *MatcherConfig) EffectiveMode() string {
+	if m.Mode == "any" {
+		return "any"
+	}
+	return "all"
 }
 
 // WebhookConfig defines the webhook target for a rule.

@@ -41,8 +41,8 @@
           <td class="px-4 py-3.5 font-medium text-foreground dark:text-zinc-200 max-w-xs truncate group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors">
             {{if .Subject}}{{.Subject}}{{else}}<span class="text-muted-foreground dark:text-zinc-500 italic">(no subject)</span>{{end}}
           </td>
-          <td class="px-4 py-3.5 text-muted-foreground dark:text-zinc-500 hidden sm:table-cell max-w-[200px] truncate">{{.EnvelopeFrom}}</td>
-          <td class="px-4 py-3.5 text-muted-foreground dark:text-zinc-500 hidden lg:table-cell max-w-[200px] truncate">{{joinStrings .EnvelopeTo}}</td>
+          <td class="px-4 py-3.5 text-muted-foreground dark:text-zinc-500 hidden sm:table-cell max-w-[200px] truncate">{{.DisplayFrom}}</td>
+          <td class="px-4 py-3.5 text-muted-foreground dark:text-zinc-500 hidden lg:table-cell max-w-[200px] truncate">{{joinStrings .DisplayTo}}</td>
           <td class="px-4 py-3.5 text-right text-muted-foreground dark:text-zinc-600 whitespace-nowrap text-xs tabular-nums">{{timeAgo .ReceivedAt}}</td>
         </tr>
         {{end}}

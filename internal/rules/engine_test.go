@@ -57,7 +57,9 @@ func TestMatchAny(t *testing.T) {
 
 func TestMatchRule(t *testing.T) {
 	email := &models.ParsedEmail{
-		EnvelopeFrom: "sender@example.com",
+		From:         "sender@example.com",
+		To:           []string{"recipient@dest.com"},
+		EnvelopeFrom: "bounce@ses.example.com",
 		EnvelopeTo:   []string{"recipient@dest.com"},
 		Subject:      "Hello World",
 	}
@@ -68,35 +70,76 @@ func TestMatchRule(t *testing.T) {
 		want  bool
 	}{
 		{
-			"empty matchers match everything",
+			"empty conditions match everything",
 			models.MatcherConfig{},
 			true,
 		},
 		{
-			"AND logic all match",
-			models.MatcherConfig{
-				FromEmail: "*@example.com",
-				ToEmail:   "*@dest.com",
-				Subject:   "Hello*",
-			},
+			"all mode - all match",
+			models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "from", Pattern: "*@example.com"},
+				{Field: "to", Pattern: "*@dest.com"},
+				{Field: "subject", Pattern: "Hello*"},
+			}},
 			true,
 		},
 		{
-			"AND logic one fails",
-			models.MatcherConfig{
-				FromEmail: "*@example.com",
-				ToEmail:   "*@other.com",
-			},
+			"all mode - one fails",
+			models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "from", Pattern: "*@example.com"},
+				{Field: "to", Pattern: "*@other.com"},
+			}},
 			false,
 		},
 		{
-			"from_domain match",
-			models.MatcherConfig{FromDomain: "example.com"},
+			"any mode - one matches",
+			models.MatcherConfig{Mode: "any", Conditions: []models.MatchCondition{
+				{Field: "from", Pattern: "*@nope.com"},
+				{Field: "subject", Pattern: "Hello*"},
+			}},
 			true,
 		},
 		{
-			"to_domain match",
-			models.MatcherConfig{ToDomain: "dest.com"},
+			"any mode - none match",
+			models.MatcherConfig{Mode: "any", Conditions: []models.MatchCondition{
+				{Field: "from", Pattern: "*@nope.com"},
+				{Field: "subject", Pattern: "Goodbye*"},
+			}},
+			false,
+		},
+		{
+			"from matches header From",
+			models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "from", Pattern: "*@example.com"},
+			}},
+			true,
+		},
+		{
+			"mail_from matches envelope",
+			models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "mail_from", Pattern: "*@ses.example.com"},
+			}},
+			true,
+		},
+		{
+			"from does not match envelope",
+			models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "from", Pattern: "*@ses.example.com"},
+			}},
+			false,
+		},
+		{
+			"from_domain matches header From domain",
+			models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "from_domain", Pattern: "example.com"},
+			}},
+			true,
+		},
+		{
+			"to_domain matches header To domain",
+			models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "to_domain", Pattern: "dest.com"},
+			}},
 			true,
 		},
 	}
@@ -113,14 +156,22 @@ func TestMatchRule(t *testing.T) {
 
 func TestEngineMatch(t *testing.T) {
 	testRules := []models.Rule{
-		{Name: "rule1", Match: models.MatcherConfig{FromDomain: "example.com"}},
-		{Name: "rule2", Match: models.MatcherConfig{FromDomain: "other.com"}},
-		{Name: "rule3", Match: models.MatcherConfig{Subject: "*World*"}},
+		{Name: "rule1", Match: models.MatcherConfig{Conditions: []models.MatchCondition{
+			{Field: "from_domain", Pattern: "example.com"},
+		}}},
+		{Name: "rule2", Match: models.MatcherConfig{Conditions: []models.MatchCondition{
+			{Field: "from_domain", Pattern: "other.com"},
+		}}},
+		{Name: "rule3", Match: models.MatcherConfig{Conditions: []models.MatchCondition{
+			{Field: "subject", Pattern: "*World*"},
+		}}},
 	}
 	engine := NewEngine()
 	engine.SetRules(testRules)
 
 	email := &models.ParsedEmail{
+		From:         "sender@example.com",
+		To:           []string{"r@dest.com"},
 		EnvelopeFrom: "sender@example.com",
 		EnvelopeTo:   []string{"r@dest.com"},
 		Subject:      "Hello World",
@@ -139,6 +190,7 @@ func TestEngineMatch(t *testing.T) {
 
 	// No matches.
 	noMatchEmail := &models.ParsedEmail{
+		From:         "sender@nowhere.com",
 		EnvelopeFrom: "sender@nowhere.com",
 		EnvelopeTo:   []string{"r@dest.com"},
 		Subject:      "Nothing",

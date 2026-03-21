@@ -164,7 +164,9 @@ func TestE2E_BasicDelivery(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "from-example",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match: models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "from_domain", Pattern: "example.com"},
+			}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -187,7 +189,7 @@ func TestE2E_NoRuleMatch(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "only-alerts",
-			Match:   models.MatcherConfig{ToDomain: "alerts.example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "to_domain", Pattern: "alerts.example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -212,12 +214,12 @@ func TestE2E_MultipleRulesMatch(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "rule-domain",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL1, Method: "POST"},
 		},
 		{
 			Name:    "rule-subject",
-			Match:   models.MatcherConfig{Subject: "ALERT*"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "subject", Pattern: "ALERT*"}}},
 			Webhook: models.WebhookConfig{URL: hookURL2, Method: "POST"},
 		},
 	})
@@ -249,7 +251,7 @@ func TestE2E_GlobPatterns(t *testing.T) {
 	}{
 		{
 			name:    "wildcard from_email",
-			matcher: models.MatcherConfig{FromEmail: "*@alerts.io"},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "mail_from", Pattern: "*@alerts.io"}}},
 			from:    "noreply@alerts.io",
 			to:      "admin@corp.com",
 			subject: "test",
@@ -257,7 +259,7 @@ func TestE2E_GlobPatterns(t *testing.T) {
 		},
 		{
 			name:    "wildcard to_email",
-			matcher: models.MatcherConfig{ToEmail: "ops*@corp.com"},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "rcpt_to", Pattern: "ops*@corp.com"}}},
 			from:    "sender@foo.com",
 			to:      "ops-team@corp.com",
 			subject: "test",
@@ -265,7 +267,7 @@ func TestE2E_GlobPatterns(t *testing.T) {
 		},
 		{
 			name:    "glob subject prefix",
-			matcher: models.MatcherConfig{Subject: "CRITICAL:*"},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "subject", Pattern: "CRITICAL:*"}}},
 			from:    "sender@foo.com",
 			to:      "r@bar.com",
 			subject: "CRITICAL: disk full",
@@ -273,7 +275,7 @@ func TestE2E_GlobPatterns(t *testing.T) {
 		},
 		{
 			name:    "glob to_domain wildcard",
-			matcher: models.MatcherConfig{ToDomain: "*.company.com"},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "to_domain", Pattern: "*.company.com"}}},
 			from:    "sender@foo.com",
 			to:      "r@sub.company.com",
 			subject: "test",
@@ -281,7 +283,7 @@ func TestE2E_GlobPatterns(t *testing.T) {
 		},
 		{
 			name:    "from_email no match",
-			matcher: models.MatcherConfig{FromEmail: "*@alerts.io"},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "mail_from", Pattern: "*@alerts.io"}}},
 			from:    "sender@other.com",
 			to:      "r@bar.com",
 			subject: "test",
@@ -329,7 +331,7 @@ func TestE2E_RegexPatterns(t *testing.T) {
 	}{
 		{
 			name:    "regex subject match",
-			matcher: models.MatcherConfig{Subject: `/^\[URGENT\]/`},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "subject", Pattern: `/^\[URGENT\]/`}}},
 			from:    "s@foo.com",
 			to:      "r@bar.com",
 			subject: "[URGENT] server down",
@@ -337,7 +339,7 @@ func TestE2E_RegexPatterns(t *testing.T) {
 		},
 		{
 			name:    "regex from_email match",
-			matcher: models.MatcherConfig{FromEmail: `/^(monitor|alert)@/`},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "mail_from", Pattern: `/^(monitor|alert)@/`}}},
 			from:    "monitor@infra.com",
 			to:      "r@bar.com",
 			subject: "test",
@@ -345,7 +347,7 @@ func TestE2E_RegexPatterns(t *testing.T) {
 		},
 		{
 			name:    "regex subject no match",
-			matcher: models.MatcherConfig{Subject: `/^\[URGENT\]/`},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "subject", Pattern: `/^\[URGENT\]/`}}},
 			from:    "s@foo.com",
 			to:      "r@bar.com",
 			subject: "ordinary subject",
@@ -353,7 +355,7 @@ func TestE2E_RegexPatterns(t *testing.T) {
 		},
 		{
 			name:    "regex to_email match",
-			matcher: models.MatcherConfig{ToEmail: `/^(ops|sre)@company\.com$/`},
+			matcher: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "rcpt_to", Pattern: `/^(ops|sre)@company\.com$/`}}},
 			from:    "s@foo.com",
 			to:      "sre@company.com",
 			subject: "test",
@@ -396,11 +398,11 @@ func TestE2E_ANDLogic(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name: "and-rule",
-			Match: models.MatcherConfig{
-				FromDomain: "example.com",
-				Subject:    "ALERT*",
-				ToDomain:   "ops.io",
-			},
+			Match: models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "from_domain", Pattern: "example.com"},
+				{Field: "subject", Pattern: "ALERT*"},
+				{Field: "to_domain", Pattern: "ops.io"},
+			}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -438,7 +440,7 @@ func TestE2E_ORLogicMultipleRecipients(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "ops-rule",
-			Match:   models.MatcherConfig{ToEmail: "ops@company.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "rcpt_to", Pattern: "ops@company.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -463,7 +465,7 @@ func TestE2E_WebhookPayloadContents(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "capture",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -506,7 +508,7 @@ func TestE2E_CustomPayloadTemplate(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:  "template-rule",
-			Match: models.MatcherConfig{FromDomain: "example.com"},
+			Match: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{
 				URL:             hookURL,
 				Method:          "POST",
@@ -555,7 +557,7 @@ func TestE2E_CustomWebhookHeaders(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:  "auth-rule",
-			Match: models.MatcherConfig{FromDomain: "example.com"},
+			Match: models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{
 				URL:    srv.URL,
 				Method: "POST",
@@ -599,7 +601,7 @@ func TestE2E_WebhookRetryOn5xx(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "retry-rule",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},
 		},
 	})
@@ -629,7 +631,7 @@ func TestE2E_WebhookNoRetryOn4xx(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "no-retry-rule",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: srv.URL, Method: "POST"},
 		},
 	})
@@ -690,7 +692,7 @@ func TestE2E_HTMLEmail(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "html-rule",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -730,7 +732,7 @@ func TestE2E_MultipartAlternativeEmail(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "multipart-rule",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -784,7 +786,7 @@ func TestE2E_RulesHotReload(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "rule1",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL1, Method: "POST"},
 		},
 	})
@@ -799,7 +801,7 @@ func TestE2E_RulesHotReload(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "rule2",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL2, Method: "POST"},
 		},
 	})
@@ -827,7 +829,7 @@ func TestE2E_ConcurrentEmails(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "concurrent-rule",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -885,7 +887,7 @@ func TestE2E_ToDomainORLogic(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "ops-domain",
-			Match:   models.MatcherConfig{ToDomain: "ops.io"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "rcpt_to_domain", Pattern: "ops.io"}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -1286,7 +1288,7 @@ func TestE2E_WebhookGETMethod(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "get-rule",
-			Match:   models.MatcherConfig{FromDomain: "example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "example.com"}}},
 			Webhook: models.WebhookConfig{URL: srv.URL, Method: "GET"},
 		},
 	})
@@ -1402,7 +1404,7 @@ func TestE2E_FromDomainWildcard(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "subdomain-rule",
-			Match:   models.MatcherConfig{FromDomain: "*.example.com"},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "from_domain", Pattern: "*.example.com"}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -1434,10 +1436,10 @@ func TestE2E_SubjectRegexCombinedWithFromDomain(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name: "combined-rule",
-			Match: models.MatcherConfig{
-				FromDomain: "*.infra.io",
-				Subject:    `/^(CRIT|WARN):/`,
-			},
+			Match: models.MatcherConfig{Conditions: []models.MatchCondition{
+				{Field: "from_domain", Pattern: "*.infra.io"},
+				{Field: "subject", Pattern: `/^(CRIT|WARN):/`},
+			}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})
@@ -1476,7 +1478,7 @@ func TestE2E_ToEmailRegexMultipleRecipients(t *testing.T) {
 	h.engine.SetRules([]models.Rule{
 		{
 			Name:    "pagerduty-rule",
-			Match:   models.MatcherConfig{ToEmail: `/^(oncall|pagerduty)@/`},
+			Match:   models.MatcherConfig{Conditions: []models.MatchCondition{{Field: "rcpt_to", Pattern: `/^(oncall|pagerduty)@/`}}},
 			Webhook: models.WebhookConfig{URL: hookURL, Method: "POST"},
 		},
 	})

@@ -111,6 +111,9 @@ func migrate(db *sql.DB) error {
 	db.Exec(`ALTER TABLE emails ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''`)
 	// Add response_body column to existing databases.
 	db.Exec(`ALTER TABLE deliveries ADD COLUMN response_body TEXT NOT NULL DEFAULT ''`)
+	// Add header From/To columns to distinguish from envelope addresses.
+	db.Exec(`ALTER TABLE emails ADD COLUMN header_from TEXT NOT NULL DEFAULT ''`)
+	db.Exec(`ALTER TABLE emails ADD COLUMN header_to TEXT NOT NULL DEFAULT '[]'`)
 
 	return nil
 }
@@ -124,6 +127,7 @@ func (s *Store) SaveEmail(ctx context.Context, record *models.EmailRecord) error
 	}
 
 	envelopeTo, _ := json.Marshal(record.EnvelopeTo)
+	headerTo, _ := json.Marshal(record.HeaderTo)
 	parsedEmail, _ := json.Marshal(record.ParsedEmail)
 	var authResult []byte
 	if record.AuthResult != nil {
@@ -131,9 +135,10 @@ func (s *Store) SaveEmail(ctx context.Context, record *models.EmailRecord) error
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO emails (id, received_at, envelope_from, envelope_to, subject, status, rejection_reason, parsed_email, auth_result)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO emails (id, received_at, envelope_from, envelope_to, header_from, header_to, subject, status, rejection_reason, parsed_email, auth_result)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		record.ID, record.ReceivedAt, record.EnvelopeFrom, string(envelopeTo),
+		record.HeaderFrom, string(headerTo),
 		record.Subject, string(record.Status), record.RejectionReason, string(parsedEmail),
 		nullString(authResult),
 	)
@@ -150,7 +155,7 @@ func (s *Store) UpdateEmailStatus(ctx context.Context, id string, status models.
 
 func (s *Store) GetEmail(ctx context.Context, id string) (*models.EmailRecord, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, received_at, envelope_from, envelope_to, subject, status, rejection_reason, parsed_email, auth_result
+		`SELECT id, received_at, envelope_from, envelope_to, header_from, header_to, subject, status, rejection_reason, parsed_email, auth_result
 		 FROM emails WHERE id = ?`, id,
 	)
 	return scanEmail(row)
@@ -169,9 +174,9 @@ func (s *Store) ListEmails(ctx context.Context, filter EmailFilter) (*EmailListR
 		args = append(args, filter.Status)
 	}
 	if filter.Search != "" {
-		where = append(where, "(subject LIKE ? OR envelope_from LIKE ? OR envelope_to LIKE ?)")
+		where = append(where, "(subject LIKE ? OR envelope_from LIKE ? OR envelope_to LIKE ? OR header_from LIKE ? OR header_to LIKE ?)")
 		search := "%" + filter.Search + "%"
-		args = append(args, search, search, search)
+		args = append(args, search, search, search, search, search)
 	}
 
 	whereClause := ""
@@ -186,7 +191,7 @@ func (s *Store) ListEmails(ctx context.Context, filter EmailFilter) (*EmailListR
 	}
 
 	query := fmt.Sprintf(
-		"SELECT id, received_at, envelope_from, envelope_to, subject, status, rejection_reason, parsed_email, auth_result FROM emails %s ORDER BY received_at DESC LIMIT ? OFFSET ?",
+		"SELECT id, received_at, envelope_from, envelope_to, header_from, header_to, subject, status, rejection_reason, parsed_email, auth_result FROM emails %s ORDER BY received_at DESC LIMIT ? OFFSET ?",
 		whereClause,
 	)
 	args = append(args, filter.Limit, filter.Offset)
@@ -502,20 +507,10 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-func scanEmail(row *sql.Row) (*models.EmailRecord, error) {
-	var rec models.EmailRecord
-	var envelopeTo, parsedEmail string
-	var authResult sql.NullString
-	var status string
-
-	err := row.Scan(&rec.ID, &rec.ReceivedAt, &rec.EnvelopeFrom, &envelopeTo,
-		&rec.Subject, &status, &rec.RejectionReason, &parsedEmail, &authResult)
-	if err != nil {
-		return nil, err
-	}
-
+func populateEmailRecord(rec *models.EmailRecord, envelopeTo, headerTo, parsedEmail, status string, authResult sql.NullString) {
 	rec.Status = models.EmailStatus(status)
 	json.Unmarshal([]byte(envelopeTo), &rec.EnvelopeTo)
+	json.Unmarshal([]byte(headerTo), &rec.HeaderTo)
 
 	var pe models.ParsedEmail
 	if err := json.Unmarshal([]byte(parsedEmail), &pe); err == nil {
@@ -528,37 +523,39 @@ func scanEmail(row *sql.Row) (*models.EmailRecord, error) {
 			rec.AuthResult = &ar
 		}
 	}
+}
 
+func scanEmail(row *sql.Row) (*models.EmailRecord, error) {
+	var rec models.EmailRecord
+	var envelopeTo, headerTo, parsedEmail string
+	var authResult sql.NullString
+	var status string
+
+	err := row.Scan(&rec.ID, &rec.ReceivedAt, &rec.EnvelopeFrom, &envelopeTo,
+		&rec.HeaderFrom, &headerTo,
+		&rec.Subject, &status, &rec.RejectionReason, &parsedEmail, &authResult)
+	if err != nil {
+		return nil, err
+	}
+
+	populateEmailRecord(&rec, envelopeTo, headerTo, parsedEmail, status, authResult)
 	return &rec, nil
 }
 
 func scanEmailRow(rows *sql.Rows) (*models.EmailRecord, error) {
 	var rec models.EmailRecord
-	var envelopeTo, parsedEmail string
+	var envelopeTo, headerTo, parsedEmail string
 	var authResult sql.NullString
 	var status string
 
 	err := rows.Scan(&rec.ID, &rec.ReceivedAt, &rec.EnvelopeFrom, &envelopeTo,
+		&rec.HeaderFrom, &headerTo,
 		&rec.Subject, &status, &rec.RejectionReason, &parsedEmail, &authResult)
 	if err != nil {
 		return nil, err
 	}
 
-	rec.Status = models.EmailStatus(status)
-	json.Unmarshal([]byte(envelopeTo), &rec.EnvelopeTo)
-
-	var pe models.ParsedEmail
-	if err := json.Unmarshal([]byte(parsedEmail), &pe); err == nil {
-		rec.ParsedEmail = &pe
-	}
-
-	if authResult.Valid {
-		var ar models.AuthResult
-		if err := json.Unmarshal([]byte(authResult.String), &ar); err == nil {
-			rec.AuthResult = &ar
-		}
-	}
-
+	populateEmailRecord(&rec, envelopeTo, headerTo, parsedEmail, status, authResult)
 	return &rec, nil
 }
 
