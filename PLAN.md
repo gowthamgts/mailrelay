@@ -202,3 +202,186 @@ rules:
 6. Test retry behavior by pointing a rule at a temporarily unavailable endpoint
 7. Test recipient filtering: `swaks --to blocked@other.com --server 127.0.0.1:25` should be rejected with 550
 8. Test auth enforcement: enable `enforce: true` for DKIM and send an unsigned email — should be rejected
+
+---
+
+# Plan: Notification Support for Permanent Webhook Delivery Failures
+
+## Context
+
+When mailrelay dispatches webhooks and they permanently fail — either because the endpoint returned a 4xx response (`status = "rejected"`) or all retries were exhausted / timed out (`status = "failed"`) — operators currently have no way to be alerted. This plan adds best-effort async notifications via Email, Slack, and Telegram so operators can react to delivery failures without polling the web UI.
+
+---
+
+## Critical Files
+
+| File | Change |
+|---|---|
+| `internal/models/models.go` | Add 4 new config structs + field on `AppConfig` |
+| `internal/config/config.go` | Add validation for enabled providers |
+| `cmd/mailrelay/main.go` | Construct `Notifier`, extend `buildHandler` |
+| `internal/notifications/` | New package (5 files) |
+| `config.example.yaml` | Document `notifications:` block |
+| `config.dev.yaml` | Add disabled stub |
+| `README.md` | Document the feature |
+
+---
+
+## Step-by-Step Implementation
+
+### Step 1 — Config structs (`internal/models/models.go`)
+
+Add before `AppConfig`:
+
+```go
+type NotificationEmailConfig struct {
+    Enabled         bool     `json:"enabled" koanf:"enabled"`
+    SMTPAddr        string   `json:"smtp_addr" koanf:"smtp_addr"`
+    SMTPUsername    string   `json:"smtp_username" koanf:"smtp_username"`
+    SMTPPassword    string   `json:"smtp_password" koanf:"smtp_password"`
+    From            string   `json:"from" koanf:"from"`
+    To              []string `json:"to,omitempty" koanf:"to"`
+    Subject         string   `json:"subject,omitempty" koanf:"subject"`
+    MessageTemplate string   `json:"message_template,omitempty" koanf:"message_template"`
+}
+
+type NotificationSlackConfig struct {
+    Enabled         bool   `json:"enabled" koanf:"enabled"`
+    WebhookURL      string `json:"webhook_url" koanf:"webhook_url"`
+    MessageTemplate string `json:"message_template,omitempty" koanf:"message_template"`
+}
+
+type NotificationTelegramConfig struct {
+    Enabled         bool   `json:"enabled" koanf:"enabled"`
+    BotToken        string `json:"bot_token" koanf:"bot_token"`
+    ChatID          string `json:"chat_id" koanf:"chat_id"`
+    ParseMode       string `json:"parse_mode,omitempty" koanf:"parse_mode"` // "HTML" or "MarkdownV2"; default "HTML"
+    MessageTemplate string `json:"message_template,omitempty" koanf:"message_template"`
+}
+
+type NotificationConfig struct {
+    Email    NotificationEmailConfig    `json:"email" koanf:"email"`
+    Slack    NotificationSlackConfig    `json:"slack" koanf:"slack"`
+    Telegram NotificationTelegramConfig `json:"telegram" koanf:"telegram"`
+}
+```
+
+Add to `AppConfig`:
+```go
+Notifications NotificationConfig `json:"notifications" koanf:"notifications"`
+```
+
+### Step 2 — Config validation (`internal/config/config.go`)
+
+In the `validate()` function, add checks for enabled providers:
+- Email enabled → `smtp_addr`, `from`, and at least one `to` are required
+- Slack enabled → `webhook_url` required
+- Telegram enabled → `bot_token` and `chat_id` required
+- For any provider with a non-empty `message_template` → validate it parses as a `text/template`
+
+### Step 3 — New package `internal/notifications/`
+
+**`templates.go`** — default template constants + `renderTemplate(tmpl *template.Template, data NotificationData) (string, error)`
+
+Default templates:
+- `defaultEmailBody` — plain text with all fields
+- `defaultSlackTemplate` — Markdown-formatted for Slack
+- `defaultTelegramTemplate` — HTML-formatted (for `parse_mode: HTML`)
+
+**`email.go`** — `emailProvider` using `net/smtp.SendMail` (standard library only, no new deps). Templates compiled at construction. TLS-only (port 465) is a known limitation; `SendMail` supports STARTTLS.
+
+**`slack.go`** — `slackProvider` posting `{"text": "..."}` JSON to the configured incoming webhook URL via `net/http`.
+
+**`telegram.go`** — `telegramProvider` calling `https://api.telegram.org/botTOKEN/sendMessage` via `net/http`.
+
+**`notifier.go`** — central type:
+
+```go
+type NotificationData struct {
+    RuleName     string
+    Status       string    // "failed" or "rejected"
+    StatusCode   int
+    ErrorMessage string
+    Attempts     int
+    Subject      string
+    From         string
+    To           []string
+    Timestamp    time.Time
+}
+
+type Notifier struct { providers []provider }
+
+func NewNotifier(cfg models.NotificationConfig) (*Notifier, error)
+
+// NotifyFailure fires best-effort async notifications.
+// Each provider runs in its own goroutine; errors are only logged.
+// Uses context.WithoutCancel so the goroutines aren't cancelled when
+// the SMTP session context closes.
+func (n *Notifier) NotifyFailure(ctx context.Context, email *models.ParsedEmail, result models.DeliveryResult)
+```
+
+`NewNotifier` instantiates only the enabled providers; returns a zero-provider notifier (no-op) if all are disabled.
+
+### Step 4 — Wire into `cmd/mailrelay/main.go`
+
+After `config.Load()` (line 37), construct the notifier:
+```go
+notifier, err := notifications.NewNotifier(cfg.Notifications)
+if err != nil {
+    fmt.Fprintf(os.Stderr, "failed to initialize notifier: %v\n", err)
+    os.Exit(1)
+}
+```
+
+Extend `buildHandler` signature:
+```go
+func buildHandler(..., notifier *notifications.Notifier) smtpserver.EmailHandler
+```
+
+In the `for _, res := range results` loop (line 268), after saving the delivery record, add:
+```go
+if res.Status == "failed" || res.Status == "rejected" {
+    notifier.NotifyFailure(ctx, email, res)
+}
+```
+
+Update the call site on line 102:
+```go
+handler := buildHandler(engine, dispatcher, store, events, cfg.WebUI.RawEmailDir, notifier)
+```
+
+Note: `applySettings` (line 447) is intentionally NOT updated — notification config contains credentials and must not be hot-reloaded via the web UI settings page.
+
+### Step 5 — Update config files
+
+**`config.example.yaml`** — add a fully commented `notifications:` section documenting all fields and their `MAILRELAY_NOTIFICATIONS__*` env var equivalents.
+
+**`config.dev.yaml`** — add disabled `notifications:` stub.
+
+**`README.md`** — add a "Failure Notifications" section describing the three providers, required fields, and template variables.
+
+### Step 6 — Tests (`internal/notifications/notifier_test.go`)
+
+- `NewNotifier` with all disabled → no-op notifier, zero providers
+- `renderTemplate` with default and custom templates → expected output
+- `slackProvider.send` → verify correct JSON body posted to `httptest.NewServer`; non-2xx returns error
+- `telegramProvider.send` → verify correct JSON body to mock server
+- `emailProvider` → bad template at construction returns error
+- `NotifyFailure` with `status = "success"` → no provider called
+- `NotifyFailure` with `status = "failed"` → provider goroutine fires
+
+---
+
+## No New Dependencies
+
+All three providers use only the Go standard library (`net/smtp`, `net/http`, `encoding/json`, `text/template`). `go.mod` is unchanged.
+
+---
+
+## Verification
+
+1. Run `go build ./...` — no compile errors
+2. Run `go test ./internal/notifications/...` — all tests pass
+3. Run `go test ./internal/config/...` — validation tests pass
+4. Configure Slack webhook in `config.dev.yaml`, start server with `just dev`, send a test email to a rule whose webhook URL returns 400 → Slack message received
+5. Verify `NotifyFailure` does not block the SMTP session by checking delivery timestamps in the web UI

@@ -44,3 +44,4 @@ config.yaml
 
 
 *.eml
+.DS_Store
