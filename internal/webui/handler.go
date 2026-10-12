@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	texttemplate "text/template"
 	"time"
 
 	"github.com/gowthamgts/mailrelay/internal/httpcsrf"
@@ -947,13 +946,20 @@ func (h *Handler) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	statusCode, err := h.dispatcher.TestConnectivity(r.Context(), webhookURL, method)
+	res, err := h.dispatcher.TestConnectivity(r.Context(), webhookURL, method)
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": err.Error(), "status_code": 0})
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]any{"success": true, "status_code": statusCode, "error": ""})
+	json.NewEncoder(w).Encode(map[string]any{
+		"success":      true,
+		"status_code":  res.StatusCode,
+		"content_type": res.ContentType,
+		"body":         res.Body,
+		"truncated":    res.Truncated,
+		"error":        "",
+	})
 }
 
 func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
@@ -974,7 +980,7 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 
 	payloadTemplate := r.FormValue("payload_template")
 	if strings.TrimSpace(payloadTemplate) != "" {
-		if _, err := texttemplate.New("validate").Parse(payloadTemplate); err != nil {
+		if _, err := webhook.ParseTemplate(payloadTemplate); err != nil {
 			return nil, fmt.Sprintf("Invalid payload template: %v", err)
 		}
 	}

@@ -609,6 +609,35 @@
     ];
     var VALID_TEMPLATE_VARS = TEMPLATE_VARS.map(function(v) { return v.name; });
 
+    // Helper functions registered on the server (webhook.TemplateFuncs).
+    var TEMPLATE_FUNCS = [
+      { name: 'first',   example: '.To | first',              desc: 'First element of an array (null if empty)' },
+      { name: 'last',    example: '.To | last',               desc: 'Last element of an array (null if empty)' },
+      { name: 'join',    example: '.To | join ", "',          desc: 'Join an array into one string' },
+      { name: 'default', example: '.TextBody | default ""',   desc: 'Fallback when null, "", [] or {} — a literal or another variable' }
+    ];
+    var VALID_TEMPLATE_FUNCS = TEMPLATE_FUNCS.map(function(f) { return f.name; });
+    var TEMPLATE_BUILTINS = ['and', 'or', 'not', 'len', 'index', 'slice', 'print', 'printf', 'println', 'eq', 'ne', 'lt', 'le', 'gt', 'ge', 'html', 'js', 'urlquery', 'call', 'nil', 'true', 'false'];
+
+    // Returns the function names called in a template expression, e.g.
+    // ".CC | default .To | first" -> ["default", "first"].
+    function templateExprFuncs(inner) {
+      var names = [];
+      var stripped = inner.replace(/"(?:[^"\\]|\\.)*"|`[^`]*`/g, '""');
+      var segments = stripped.split('|');
+      for (var i = 0; i < segments.length; i++) {
+        var m = segments[i].trim().match(/^\(?\s*([A-Za-z_]\w*)/);
+        if (m) names.push(m[1]);
+      }
+      return names;
+    }
+
+    function unknownTemplateFuncs(inner) {
+      return templateExprFuncs(inner).filter(function(n) {
+        return VALID_TEMPLATE_FUNCS.indexOf(n) === -1 && TEMPLATE_BUILTINS.indexOf(n) === -1;
+      });
+    }
+
     // Sample values for JSON validation: strings get quoted, arrays/objects get structure
     var SAMPLE_VALUES = {
       From: '"test@example.com"',
@@ -668,12 +697,19 @@
           }
         }
 
-        // Check for piped expressions like .VarName | someFunc
-        var pipedMatch = inner.match(/^\.(\w+)\s*\|/);
-        if (pipedMatch) {
-          var pipedVar = pipedMatch[1];
-          if (VALID_TEMPLATE_VARS.indexOf(pipedVar) === -1) {
-            errors.push('Unknown variable {{`{{`}}.' + pipedVar + '{{`}}`}} in expression "' + inner + '"');
+        // Check every variable and function referenced in a pipeline,
+        // e.g. ".CC | default .To | first" or "first .To"
+        if (!varMatch) {
+          var refVars = inner.replace(/"(?:[^"\\]|\\.)*"|`[^`]*`/g, '""').match(/(^|[\s(|])\.(\w+)/g) || [];
+          for (var j = 0; j < refVars.length; j++) {
+            var refVar = refVars[j].replace(/^[\s(|]*\./, '');
+            if (VALID_TEMPLATE_VARS.indexOf(refVar) === -1) {
+              errors.push('Unknown variable {{`{{`}}.' + refVar + '{{`}}`}} in expression "' + inner + '"');
+            }
+          }
+          var badFuncs = unknownTemplateFuncs(inner);
+          for (var k = 0; k < badFuncs.length; k++) {
+            errors.push('Unknown function "' + badFuncs[k] + '" in expression "' + inner + '". Available functions: ' + VALID_TEMPLATE_FUNCS.join(', '));
           }
         }
       }
@@ -693,6 +729,12 @@
         // Replace template expressions with sample JSON values
         jsonTest = jsonTest.replace(/\{\{\s*\.(\w+)\s*\}\}/g, function(m, varName) {
           return SAMPLE_VALUES[varName] || '"__unknown__"';
+        });
+        // Function pipelines (e.g. ".To | first") produce a single JSON value
+        jsonTest = jsonTest.replace(/\{\{-?([\s\S]*?)-?\}\}/g, function(m, inner) {
+          inner = inner.trim();
+          if (/^(if|else|end|range|with|block|define|template)\b/.test(inner) || /^\/\*/.test(inner)) return m;
+          return '"sample"';
         });
         // Remove any remaining template constructs (if/else/range/end etc.)
         jsonTest = jsonTest.replace(/\{\{.*?\}\}/g, '');
@@ -774,8 +816,11 @@
       inner = inner.replace(/^-\s*/, '').replace(/\s*-$/, '').trim();
       if (/^(if|else|end|range|with|block|define|template)\b/.test(inner) || /^\/\*/.test(inner)) return 'action';
       var m = inner.match(/^\.(\w+)\s*(\|.*)?$/);
-      if (m) return VALID_TEMPLATE_VARS.indexOf(m[1]) !== -1 ? 'var' : 'bad';
-      return 'action';
+      if (m && VALID_TEMPLATE_VARS.indexOf(m[1]) === -1) return 'bad';
+      if (unknownTemplateFuncs(inner).length) return 'bad';
+      if (m) return 'var';
+      var fn = templateExprFuncs(inner)[0];
+      return fn && VALID_TEMPLATE_FUNCS.indexOf(fn) !== -1 ? 'var' : 'action';
     }
 
     function renderTemplateHighlight() {
@@ -805,8 +850,12 @@
     }
 
     function insertTemplateVar(name) {
+      insertTemplateExpr('.' + name);
+    }
+
+    function insertTemplateExpr(expr) {
       var textarea = document.getElementById('payload_template');
-      var snippet = '{{`{{`}}.' + name + '{{`}}`}}';
+      var snippet = '{{`{{`}}' + (expr.charAt(0) === '.' && expr.indexOf(' ') === -1 ? expr : ' ' + expr + ' ') + '{{`}}`}}';
       var start = textarea.selectionStart;
       var end = textarea.selectionEnd;
       textarea.focus();
@@ -824,6 +873,15 @@
           '<code class="tmpl-tok tmpl-tok-var shrink-0 text-xs font-mono">{{`{{`}}.' + v.name + '{{`}}`}}</code>' +
           '<span class="min-w-0 flex-1 text-[11px] leading-4 pt-px text-muted-foreground dark:text-zinc-400">' + escapeHtml(v.desc) + '</span>' +
           '<span class="shrink-0 pt-px font-mono text-[10px] leading-4 text-zinc-400 dark:text-zinc-500">' + v.type + '</span>' +
+          '</button></li>';
+      }
+      html += '<li class="px-2 pt-2.5 pb-1 text-xs font-medium text-foreground dark:text-zinc-200">Functions</li>';
+      for (var i = 0; i < TEMPLATE_FUNCS.length; i++) {
+        var f = TEMPLATE_FUNCS[i];
+        html += '<li><button type="button" onmousedown="event.preventDefault()" onclick="insertTemplateExpr(TEMPLATE_FUNCS[' + i + '].example)" ' +
+          'class="w-full flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-amber-50 dark:hover:bg-amber-500/10 focus:bg-amber-50 dark:focus:bg-amber-500/10 focus:outline-none transition-colors">' +
+          '<code class="tmpl-tok tmpl-tok-var self-start text-xs font-mono">{{`{{`}} ' + escapeHtml(f.example) + ' {{`}}`}}</code>' +
+          '<span class="text-[11px] leading-4 text-muted-foreground dark:text-zinc-400">' + escapeHtml(f.desc) + '</span>' +
           '</button></li>';
       }
       list.innerHTML = html;
@@ -1002,6 +1060,33 @@
     }
 
     // ===== Test Webhook Connectivity =====
+    // Response body from a webhook test, pretty-printed when it is JSON.
+    function renderTestResponse(data) {
+      var body = data.body || '';
+      var meta = [];
+      if (data.content_type) meta.push(data.content_type.split(';')[0]);
+      meta.push(formatBytes(new TextEncoder().encode(body).length) + (data.truncated ? ', truncated' : ''));
+      var content;
+      if (!body) {
+        content = '<span class="italic text-muted-foreground dark:text-zinc-500">Empty response body</span>';
+      } else {
+        try { body = JSON.stringify(JSON.parse(body), null, 2); } catch (e) {}
+        content = escapeHtml(body);
+      }
+      return '<div class="mt-2">' +
+        '<div class="flex items-center justify-between gap-2 mb-1">' +
+          '<span class="font-medium text-muted-foreground dark:text-zinc-400">Response</span>' +
+          '<span class="font-mono text-[10px] text-zinc-400 dark:text-zinc-500 truncate">' + escapeHtml(meta.join(' · ')) + '</span>' +
+        '</div>' +
+        '<pre class="text-xs text-foreground dark:text-zinc-300 whitespace-pre-wrap break-all font-mono bg-muted/50 dark:bg-zinc-800/50 rounded-lg px-3 py-1.5 max-h-48 overflow-auto ring-1 ring-inset ring-border dark:ring-zinc-700">' + content + '</pre>' +
+      '</div>';
+    }
+
+    function formatBytes(n) {
+      if (n < 1024) return n + ' B';
+      return (n / 1024).toFixed(1) + ' KB';
+    }
+
     function testWebhook() {
       var url = document.getElementById('webhook_url').value.trim();
       var method = document.getElementById('webhook_method').value;
@@ -1027,7 +1112,11 @@
         .then(function(resp) { return resp.json(); })
         .then(function(data) {
           if (data.success) {
-            resultDiv.innerHTML = '<span class="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Reachable (HTTP ' + data.status_code + ')</span>';
+            var ok = data.status_code >= 200 && data.status_code < 300;
+            resultDiv.innerHTML = (ok
+              ? '<span class="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Reachable (HTTP ' + data.status_code + ')</span>'
+              : '<span class="text-amber-600 dark:text-amber-400 flex items-center gap-1"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg> Reachable, but returned HTTP ' + data.status_code + '</span>') +
+              renderTestResponse(data);
           } else {
             resultDiv.innerHTML = '<span class="text-red-600 dark:text-red-400 flex items-center gap-1"><svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg> Unreachable: ' + escapeHtml(data.error) + '</span>';
           }

@@ -132,7 +132,7 @@ Empty fields fall back to the global defaults configured in Settings. These over
 
 ### Test connectivity
 
-When creating or editing a rule, click the **Test** button next to the webhook URL to verify the endpoint is reachable. This sends a lightweight HTTP request with a 5-second timeout and reports success or the error encountered.
+When creating or editing a rule, click the **Test** button next to the webhook URL to verify the endpoint is reachable. This sends a lightweight HTTP request (an empty `{}` JSON body) with a 5-second timeout and shows the HTTP status along with the response body (pretty-printed when it's JSON, capped at 64 KB), or the error encountered.
 
 ## Webhook payload
 
@@ -187,7 +187,33 @@ Example:
 
 String fields like `.TextBody` output a quoted, properly escaped JSON string (e.g. `"hello\nworld"`), so do **not** add surrounding quotes in the template.
 
-In the web UI's rule editor, typing `{{` in *Payload Template* opens autocomplete suggestions for the variables above (↑/↓ to choose, Enter or Tab to insert, Esc to dismiss). Expressions are highlighted as you type, with unknown variables flagged in red, and hovering the **?** icon next to the field lists every variable — click one to insert it at the cursor.
+Fields missing from the email (e.g. `.TextBody` on an HTML-only message, or `.CC` with no Cc header) render as `null`, so the payload is always valid JSON.
+
+#### Template functions
+
+These helpers take and return JSON values, so they can be used anywhere a variable can. Use them with a pipe (`{{ .To | first }}`) or as a call (`{{ first .To }}`).
+
+| Function  | Example                                | Result                                                                       |
+| --------- | -------------------------------------- | ---------------------------------------------------------------------------- |
+| `first`   | `{{ .To \| first }}`                   | First element of an array, or `null` if it is empty                          |
+| `last`    | `{{ .To \| last }}`                    | Last element of an array, or `null` if it is empty                           |
+| `join`    | `{{ .To \| join ", " }}`               | Array joined into one string, e.g. `"a@x.com, b@x.com"` (`""` if empty)      |
+| `default` | `{{ .TextBody \| default "" }}`        | The fallback when the value is `null`, `""`, `[]` or `{}`                    |
+|           | `{{ .TextBody \| default .HTMLBody }}` | The fallback can be another variable                                         |
+
+Functions can be chained, e.g. `{{ .CC | default .To | first }}`.
+
+```
+{
+  "via": "email",
+  "from": {{ .From }},
+  "to": {{ .To | first }},
+  "text": {{ .TextBody | default "" }},
+  "alert_body": {{ .HTMLBody | default .TextBody }}
+}
+```
+
+In the web UI's rule editor, typing `{{` in *Payload Template* opens autocomplete suggestions for the variables above (↑/↓ to choose, Enter or Tab to insert, Esc to dismiss). Expressions are highlighted as you type, with unknown variables flagged in red, and hovering the **?** icon next to the field lists every variable and function — click one to insert it at the cursor.
 
 ## Forwarded emails
 

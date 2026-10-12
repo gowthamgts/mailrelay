@@ -1,7 +1,9 @@
 package webhook
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -74,6 +76,59 @@ func TestBuildPayload(t *testing.T) {
 		expected := `{"from":"sender@example.com","subj":"Test"}`
 		if string(payload) != expected {
 			t.Errorf("payload = %q, want %q", string(payload), expected)
+		}
+	})
+
+	t.Run("missing fields render as null", func(t *testing.T) {
+		htmlOnly := &models.ParsedEmail{From: "a@example.com", HTMLBody: "hi html"}
+		wh := models.WebhookConfig{
+			PayloadTemplate: `{"from": {{ .From }}, "to": {{ .To }}, "text": {{ .TextBody }}, "html": {{ .HTMLBody }}}`,
+		}
+		payload, err := buildPayload(htmlOnly, wh)
+		if err != nil {
+			t.Fatalf("buildPayload() error: %v", err)
+		}
+		if !json.Valid(payload) {
+			t.Fatalf("payload is not valid JSON: %s", payload)
+		}
+		expected := `{"from": "a@example.com", "to": null, "text": null, "html": "hi html"}`
+		if string(payload) != expected {
+			t.Errorf("payload = %q, want %q", string(payload), expected)
+		}
+	})
+
+	t.Run("template funcs", func(t *testing.T) {
+		multi := &models.ParsedEmail{
+			From:     "a@example.com",
+			To:       []string{"x@example.com", "y@example.com"},
+			HTMLBody: "hi html",
+		}
+		tests := []struct {
+			tmpl string
+			want string
+		}{
+			{`{{ .To | first }}`, `"x@example.com"`},
+			{`{{ first .To }}`, `"x@example.com"`},
+			{`{{ .To | last }}`, `"y@example.com"`},
+			{`{{ .CC | first }}`, `null`},
+			{`{{ .From | first }}`, `null`},
+			{`{{ .To | join ", " }}`, `"x@example.com, y@example.com"`},
+			{`{{ .CC | join ", " }}`, `""`},
+			{`{{ .TextBody | default "" }}`, `""`},
+			{`{{ .TextBody | default "n/a" }}`, `"n/a"`},
+			{`{{ .TextBody | default .HTMLBody }}`, `"hi html"`},
+			{`{{ .HTMLBody | default "n/a" }}`, `"hi html"`},
+			{`{{ .CC | default .To | first }}`, `"x@example.com"`},
+			{`{{ .Subject | default 0 }}`, `0`},
+		}
+		for _, tt := range tests {
+			payload, err := buildPayload(multi, models.WebhookConfig{PayloadTemplate: tt.tmpl})
+			if err != nil {
+				t.Fatalf("%s: buildPayload() error: %v", tt.tmpl, err)
+			}
+			if string(payload) != tt.want {
+				t.Errorf("%s = %s, want %s", tt.tmpl, payload, tt.want)
+			}
 		}
 	})
 
@@ -326,17 +381,44 @@ func TestIsTimeoutError(t *testing.T) {
 func TestTestConnectivity(t *testing.T) {
 	t.Run("reachable", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"ok":true}`))
 		}))
 		defer srv.Close()
 
 		d := NewDispatcher(models.RetryConfig{Timeout: 5 * time.Second, RetryOnTimeout: true}, "dev")
-		code, err := d.TestConnectivity(context.Background(), srv.URL, "POST")
+		res, err := d.TestConnectivity(context.Background(), srv.URL, "POST")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if code != 200 {
-			t.Errorf("expected 200, got %d", code)
+		if res.StatusCode != 200 {
+			t.Errorf("expected 200, got %d", res.StatusCode)
+		}
+		if res.Body != `{"ok":true}` {
+			t.Errorf("body = %q, want %q", res.Body, `{"ok":true}`)
+		}
+		if res.ContentType != "application/json" {
+			t.Errorf("content type = %q, want application/json", res.ContentType)
+		}
+		if res.Truncated {
+			t.Error("expected body not to be truncated")
+		}
+	})
+
+	t.Run("large body is truncated", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write(bytes.Repeat([]byte("a"), maxTestResponseBody+10))
+		}))
+		defer srv.Close()
+
+		d := NewDispatcher(models.RetryConfig{Timeout: 5 * time.Second, RetryOnTimeout: true}, "dev")
+		res, err := d.TestConnectivity(context.Background(), srv.URL, "POST")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Body) != maxTestResponseBody || !res.Truncated {
+			t.Errorf("len(body) = %d, truncated = %v; want %d, true", len(res.Body), res.Truncated, maxTestResponseBody)
 		}
 	})
 
