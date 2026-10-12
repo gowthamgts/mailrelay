@@ -579,7 +579,12 @@ func TestListRules(t *testing.T) {
 		t.Fatalf("ListRules() error: %v", err)
 	}
 	if len(rules) != 3 {
-		t.Errorf("len(rules) = %d, want 3", len(rules))
+		t.Fatalf("len(rules) = %d, want 3", len(rules))
+	}
+	for i, want := range []string{"rule-c", "rule-b", "rule-a"} {
+		if rules[i].Name != want {
+			t.Errorf("rules[%d].Name = %q, want %q (newest first)", i, rules[i].Name, want)
+		}
 	}
 }
 

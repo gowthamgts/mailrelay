@@ -13,6 +13,46 @@
     .modal-panel { animation: modalSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
     .modal-backdrop-out { animation: backdropOut 0.15s ease-in forwards; }
     .modal-panel-out { animation: modalSlideOut 0.15s ease-in forwards; }
+
+    /* ── Payload template editor ──────────────────────────
+       A transparent textarea sits on top of a mirrored highlight layer.
+       Both layers must share identical text metrics so tokens line up. */
+    .tmpl-editor:focus-within {
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 3px rgba(245,158,11,0.12);
+    }
+    .dark .tmpl-editor:focus-within { box-shadow: 0 0 0 3px rgba(245,158,11,0.18); }
+    .tmpl-editor.tmpl-invalid, .dark .tmpl-editor.tmpl-invalid { border-color: #ef4444; }
+    .tmpl-layer {
+      margin: 0;
+      border: 0;
+      padding: 0.625rem 0.875rem;
+      font-size: 0.875rem;
+      line-height: 1.5rem;
+      letter-spacing: normal;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      tab-size: 2;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+    }
+    .tmpl-input { resize: none; overflow: hidden; min-height: 5.25rem; }
+    .tmpl-input::selection { background: rgba(245,158,11,0.28); color: transparent; }
+    .tmpl-tok {
+      border-radius: 4px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    .tmpl-tok-var    { background: rgba(245,158,11,0.16); box-shadow: 0 0 0 1px rgba(245,158,11,0.38); color: #92400e; }
+    .tmpl-tok-action { background: rgba(14,165,233,0.12); box-shadow: 0 0 0 1px rgba(14,165,233,0.32); color: #075985; }
+    .tmpl-tok-bad    { background: rgba(239,68,68,0.12);  box-shadow: 0 0 0 1px rgba(239,68,68,0.45);  color: #b91c1c; text-decoration: underline wavy rgba(239,68,68,0.7); text-underline-offset: 3px; }
+    .dark .tmpl-tok-var    { background: rgba(245,158,11,0.16); box-shadow: 0 0 0 1px rgba(245,158,11,0.35); color: #fcd34d; }
+    .dark .tmpl-tok-action { background: rgba(56,189,248,0.12); box-shadow: 0 0 0 1px rgba(56,189,248,0.3);  color: #7dd3fc; }
+    .dark .tmpl-tok-bad    { background: rgba(239,68,68,0.15);  box-shadow: 0 0 0 1px rgba(239,68,68,0.45);  color: #fca5a5; }
+
+    /* Variable reference popover: open on hover or keyboard focus */
+    .tmpl-help-popover { opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s; }
+    .tmpl-help:hover .tmpl-help-popover,
+    .tmpl-help:focus-within .tmpl-help-popover { opacity: 1; visibility: visible; transform: none; }
   </style>
 </head>
 <body class="h-full text-foreground dark:text-zinc-100">
@@ -178,7 +218,7 @@
               <div class="flex items-center gap-2">
                 <span class="text-xs text-muted-foreground dark:text-zinc-500">Match</span>
                 <select id="match_mode" name="match_mode"
-                  class="input-field h-8 appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-2.5 text-xs dark:text-zinc-200 cursor-pointer">
+                  class="input-field select-chevron h-8 appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] pl-2.5 pr-7 text-xs dark:text-zinc-200 cursor-pointer">
                   <option value="all">All conditions</option>
                   <option value="any">Any condition</option>
                 </select>
@@ -207,7 +247,7 @@
                 <div class="w-32">
                   <label for="webhook_method" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Method</label>
                   <select id="webhook_method" name="webhook_method"
-                    class="input-field h-10 w-full appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 cursor-pointer">
+                    class="input-field select-chevron h-10 w-full appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] pl-3.5 pr-8 text-sm dark:text-zinc-200 cursor-pointer">
                     <option value="POST">POST</option>
                     <option value="PUT">PUT</option>
                     <option value="PATCH">PATCH</option>
@@ -237,10 +277,31 @@
                   class="input-field w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 py-2.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600"></textarea>
               </div>
               <div>
-                <label for="payload_template" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Payload Template <span class="text-muted-foreground dark:text-zinc-500 font-normal">(Go template, leave empty for full JSON)</span></label>
-                <textarea id="payload_template" name="payload_template" rows="3"
-                  placeholder='{"text": {{`{{.TextBody}}`}}, "from": {{`{{.From}}`}}}'
-                  class="input-field w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 py-2.5 text-sm font-mono dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600"></textarea>
+                <div class="relative flex items-center gap-1.5 mb-1.5">
+                  <label for="payload_template" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400">Payload Template <span class="text-muted-foreground dark:text-zinc-500 font-normal">(Go template, leave empty for full JSON)</span></label>
+                  <div class="tmpl-help">
+                    <button type="button" aria-label="Show available template variables" aria-describedby="tmpl-vars-popover"
+                      class="inline-flex items-center justify-center h-4 w-4 rounded-full text-muted-foreground dark:text-zinc-500 hover:text-amber-600 dark:hover:text-amber-400 focus:text-amber-600 dark:focus:text-amber-400 focus:outline-none transition-colors">
+                      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" /></svg>
+                    </button>
+                    <div id="tmpl-vars-popover" role="tooltip" class="tmpl-help-popover absolute left-0 bottom-full pb-2 z-30 w-[24rem] max-w-full">
+                      <div class="rounded-xl border border-black/[0.08] dark:border-white/[0.08] bg-white dark:bg-zinc-900 shadow-xl p-3">
+                        <p class="text-xs font-medium text-foreground dark:text-zinc-200 mb-0.5">Available variables</p>
+                        <p class="text-[11px] text-muted-foreground dark:text-zinc-500 mb-2">Click to insert at the cursor, or type <code class="font-mono">{{`{{`}}</code> in the editor for suggestions. Values are already JSON-encoded.</p>
+                        <ul id="tmpl-vars-list" class="space-y-0.5 max-h-72 overflow-y-auto">{{/* Filled via JS */}}</ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="tmpl-editor relative rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] input-field">
+                  <div id="payload_template_highlight" class="tmpl-layer tmpl-highlight absolute inset-0 overflow-hidden pointer-events-none text-foreground dark:text-zinc-200" aria-hidden="true"></div>
+                  <textarea id="payload_template" name="payload_template" rows="3" spellcheck="false"
+                    placeholder='{"text": {{`{{.TextBody}}`}}, "from": {{`{{.From}}`}}}'
+                    role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="tmpl-ac"
+                    class="tmpl-layer tmpl-input relative block w-full rounded-lg bg-transparent text-transparent caret-zinc-900 dark:caret-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600 focus:outline-none"></textarea>
+                  <div id="payload_template_measure" class="tmpl-layer absolute inset-0 overflow-hidden invisible pointer-events-none" aria-hidden="true"></div>
+                  <ul id="tmpl-ac" role="listbox" class="hidden absolute z-30 w-[22rem] max-w-full max-h-56 overflow-y-auto rounded-lg border border-black/[0.08] dark:border-white/[0.08] bg-white dark:bg-zinc-900 shadow-xl p-1"></ul>
+                </div>
                 <div id="template-validation" class="mt-1.5 text-xs hidden"></div>
                 <p id="template-hint" class="mt-1.5 text-xs text-muted-foreground dark:text-zinc-500">Variables are pre-encoded as JSON — do not wrap them in quotes. e.g. <code class="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">{{`{{.Subject}}`}}</code> not <code class="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">"{{`{{.Subject}}`}}"</code></p>
               </div>
@@ -284,7 +345,7 @@
                 <div class="sm:col-span-2">
                   <label for="wh_retry_on_timeout" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Retry on Timeout</label>
                   <select id="wh_retry_on_timeout" name="wh_retry_on_timeout"
-                    class="input-field h-10 w-full max-w-xs appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3.5 text-sm dark:text-zinc-200 cursor-pointer">
+                    class="input-field select-chevron h-10 w-full max-w-xs appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] pl-3.5 pr-8 text-sm dark:text-zinc-200 cursor-pointer">
                     <option value="">Use global ({{if .GlobalRetry.RetryOnTimeout}}yes{{else}}no{{end}})</option>
                     <option value="yes">Yes</option>
                     <option value="no">No</option>
@@ -345,7 +406,7 @@
       row.className = 'condition-row flex items-start gap-2';
 
       // Field select
-      var selectHtml = '<select name="cond_field" onchange="onCondFieldChange(this)" class="input-field h-9 shrink-0 w-[180px] appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-2.5 text-xs dark:text-zinc-200 cursor-pointer">';
+      var selectHtml = '<select name="cond_field" onchange="onCondFieldChange(this)" class="input-field select-chevron h-9 shrink-0 w-[180px] appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] pl-2.5 pr-7 text-xs dark:text-zinc-200 cursor-pointer">';
       for (var i = 0; i < CONDITION_FIELDS.length; i++) {
         var f = CONDITION_FIELDS[i];
         selectHtml += '<option value="' + f.value + '"' + (f.value === field ? ' selected' : '') + '>' + escapeHtml(f.label) + '</option>';
@@ -489,6 +550,8 @@
 
       // Run template validation for pre-filled data
       var tmplValue = document.getElementById('payload_template').value;
+      closeTemplateAutocomplete();
+      renderTemplateHighlight();
       if (tmplValue.trim()) {
         renderTemplateValidation(validatePayloadTemplate(tmplValue));
       } else {
@@ -496,6 +559,7 @@
       }
 
       document.getElementById('form-modal').classList.remove('hidden');
+      autosizeTemplate();
       document.body.style.overflow = 'hidden';
       setTimeout(function() { document.getElementById('name').focus(); }, 100);
     }
@@ -530,7 +594,20 @@
     });
 
     // ===== Payload Template Validator =====
-    var VALID_TEMPLATE_VARS = ['From', 'To', 'CC', 'Subject', 'TextBody', 'HTMLBody', 'Headers', 'Attachments', 'AuthResult', 'EnvelopeFrom', 'EnvelopeTo'];
+    var TEMPLATE_VARS = [
+      { name: 'From',         type: 'string',   desc: 'Sender address from the From header' },
+      { name: 'To',           type: 'string[]', desc: 'Recipient addresses from the To header' },
+      { name: 'CC',           type: 'string[]', desc: 'Addresses from the Cc header' },
+      { name: 'Subject',      type: 'string',   desc: 'Email subject line' },
+      { name: 'TextBody',     type: 'string',   desc: 'Plain-text body' },
+      { name: 'HTMLBody',     type: 'string',   desc: 'HTML body' },
+      { name: 'Headers',      type: 'object',   desc: 'All headers, keyed by name' },
+      { name: 'Attachments',  type: 'object[]', desc: 'Attachment metadata and content' },
+      { name: 'AuthResult',   type: 'object',   desc: 'SPF, DKIM, DMARC and ARC results' },
+      { name: 'EnvelopeFrom', type: 'string',   desc: 'SMTP MAIL FROM (envelope sender)' },
+      { name: 'EnvelopeTo',   type: 'string[]', desc: 'SMTP RCPT TO (envelope recipients)' }
+    ];
+    var VALID_TEMPLATE_VARS = TEMPLATE_VARS.map(function(v) { return v.name; });
 
     // Sample values for JSON validation: strings get quoted, arrays/objects get structure
     var SAMPLE_VALUES = {
@@ -637,10 +714,12 @@
       var hint = document.getElementById('template-hint');
       var submitBtn = document.getElementById('form-submit-btn');
 
+      var editor = textarea.closest('.tmpl-editor');
+
       if (result.errors.length === 0 && result.warnings.length === 0) {
         el.classList.add('hidden');
         el.innerHTML = '';
-        textarea.classList.remove('border-red-500', 'dark:border-red-500');
+        editor.classList.remove('tmpl-invalid');
         hint.classList.remove('hidden');
         submitBtn.disabled = false;
         submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
@@ -659,11 +738,11 @@
       el.classList.remove('hidden');
 
       if (result.errors.length > 0) {
-        textarea.classList.add('border-red-500', 'dark:border-red-500');
+        editor.classList.add('tmpl-invalid');
         submitBtn.disabled = true;
         submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
       } else {
-        textarea.classList.remove('border-red-500', 'dark:border-red-500');
+        editor.classList.remove('tmpl-invalid');
         submitBtn.disabled = false;
         submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
       }
@@ -681,10 +760,218 @@
 
     // Attach validator to textarea
     var debouncedValidate = debounce(function() {
+      // Hold off while a suggestion is being picked: the expression at the caret
+      // is unfinished. Validation re-runs when the list closes.
+      if (tmplAc.open) { renderTemplateValidation({ errors: [], warnings: [] }); return; }
       var value = document.getElementById('payload_template').value;
       renderTemplateValidation(validatePayloadTemplate(value));
     }, 300);
 
+    // ===== Payload template highlighting =====
+    // Mirrors the textarea into a backdrop layer, wrapping each {{`{{ ... }}`}}
+    // expression in a token chip: known variables, template actions, or unknown.
+    function classifyTemplateExpr(inner) {
+      inner = inner.replace(/^-\s*/, '').replace(/\s*-$/, '').trim();
+      if (/^(if|else|end|range|with|block|define|template)\b/.test(inner) || /^\/\*/.test(inner)) return 'action';
+      var m = inner.match(/^\.(\w+)\s*(\|.*)?$/);
+      if (m) return VALID_TEMPLATE_VARS.indexOf(m[1]) !== -1 ? 'var' : 'bad';
+      return 'action';
+    }
+
+    function renderTemplateHighlight() {
+      var textarea = document.getElementById('payload_template');
+      var layer = document.getElementById('payload_template_highlight');
+      var value = textarea.value;
+      var html = '';
+      var last = 0;
+      var re = /\{\{([\s\S]*?)\}\}/g;
+      var m;
+      while ((m = re.exec(value)) !== null) {
+        html += escapeHtml(value.slice(last, m.index));
+        html += '<span class="tmpl-tok tmpl-tok-' + classifyTemplateExpr(m[1]) + '">' + escapeHtml(m[0]) + '</span>';
+        last = re.lastIndex;
+      }
+      html += escapeHtml(value.slice(last));
+      // A trailing newline collapses in the mirror; pad so heights match.
+      if (value.slice(-1) === '\n' || value === '') html += ' ';
+      layer.innerHTML = html;
+      autosizeTemplate();
+    }
+
+    function autosizeTemplate() {
+      var textarea = document.getElementById('payload_template');
+      textarea.style.height = 'auto';
+      textarea.style.height = textarea.scrollHeight + 'px';
+    }
+
+    function insertTemplateVar(name) {
+      var textarea = document.getElementById('payload_template');
+      var snippet = '{{`{{`}}.' + name + '{{`}}`}}';
+      var start = textarea.selectionStart;
+      var end = textarea.selectionEnd;
+      textarea.focus();
+      textarea.setRangeText(snippet, start, end, 'end');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    (function buildTemplateVarList() {
+      var list = document.getElementById('tmpl-vars-list');
+      var html = '';
+      for (var i = 0; i < TEMPLATE_VARS.length; i++) {
+        var v = TEMPLATE_VARS[i];
+        html += '<li><button type="button" onmousedown="event.preventDefault()" onclick="insertTemplateVar(\'' + v.name + '\')" ' +
+          'class="w-full flex items-start gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-amber-50 dark:hover:bg-amber-500/10 focus:bg-amber-50 dark:focus:bg-amber-500/10 focus:outline-none transition-colors">' +
+          '<code class="tmpl-tok tmpl-tok-var shrink-0 text-xs font-mono">{{`{{`}}.' + v.name + '{{`}}`}}</code>' +
+          '<span class="min-w-0 flex-1 text-[11px] leading-4 pt-px text-muted-foreground dark:text-zinc-400">' + escapeHtml(v.desc) + '</span>' +
+          '<span class="shrink-0 pt-px font-mono text-[10px] leading-4 text-zinc-400 dark:text-zinc-500">' + v.type + '</span>' +
+          '</button></li>';
+      }
+      list.innerHTML = html;
+    })();
+
+    // ===== Payload template autocomplete =====
+    // Typing "{{`{{`}}" (optionally followed by "." and part of a name) opens a
+    // suggestion list anchored at the caret.
+    var tmplAc = { open: false, items: [], active: 0, start: 0 };
+
+    function templateAcContext(textarea) {
+      if (textarea.selectionStart !== textarea.selectionEnd) return null;
+      var before = textarea.value.slice(0, textarea.selectionStart);
+      var m = before.match(/\{\{-?\s*\.?(\w*)$/);
+      if (!m) return null;
+      return { start: before.length - m[0].length, query: m[1] };
+    }
+
+    function filterTemplateVars(query) {
+      var q = query.toLowerCase();
+      var prefix = [], contains = [];
+      for (var i = 0; i < TEMPLATE_VARS.length; i++) {
+        var n = TEMPLATE_VARS[i].name.toLowerCase();
+        if (n.indexOf(q) === 0) prefix.push(TEMPLATE_VARS[i]);
+        else if (q && n.indexOf(q) !== -1) contains.push(TEMPLATE_VARS[i]);
+      }
+      return prefix.concat(contains);
+    }
+
+    function caretOffset(textarea, pos) {
+      var measure = document.getElementById('payload_template_measure');
+      measure.innerHTML = escapeHtml(textarea.value.slice(0, pos)) + '<span>\u200b</span>';
+      var marker = measure.lastChild;
+      return { top: marker.offsetTop, left: marker.offsetLeft, height: marker.offsetHeight };
+    }
+
+    function updateTemplateAutocomplete() {
+      var textarea = document.getElementById('payload_template');
+      var ctx = document.activeElement === textarea ? templateAcContext(textarea) : null;
+      var items = ctx ? filterTemplateVars(ctx.query) : [];
+      if (!ctx || items.length === 0) { closeTemplateAutocomplete(); return; }
+
+      var sameList = tmplAc.open && tmplAc.items.length === items.length &&
+        tmplAc.items.every(function(v, i) { return v === items[i]; });
+      tmplAc.items = items;
+      tmplAc.start = ctx.start;
+      if (!sameList) tmplAc.active = 0;
+      tmplAc.open = true;
+      renderTemplateAutocomplete(ctx.query);
+      positionTemplateAutocomplete(ctx.start);
+    }
+
+    function renderTemplateAutocomplete(query) {
+      var list = document.getElementById('tmpl-ac');
+      var html = '';
+      for (var i = 0; i < tmplAc.items.length; i++) {
+        var v = tmplAc.items[i];
+        var active = i === tmplAc.active;
+        var idx = query ? v.name.toLowerCase().indexOf(query.toLowerCase()) : -1;
+        var label = idx === -1 ? escapeHtml(v.name) :
+          escapeHtml(v.name.slice(0, idx)) + '<span class="font-semibold">' + escapeHtml(v.name.slice(idx, idx + query.length)) + '</span>' + escapeHtml(v.name.slice(idx + query.length));
+        html += '<li id="tmpl-ac-' + i + '" role="option" aria-selected="' + active + '" data-index="' + i + '" ' +
+          'onmousedown="event.preventDefault()" onclick="acceptTemplateAutocomplete(' + i + ')" onmousemove="setTemplateAcActive(' + i + ')" ' +
+          'class="flex items-center gap-2.5 rounded-md px-2 py-1.5 cursor-pointer ' + (active ? 'bg-amber-50 dark:bg-amber-500/10' : '') + '">' +
+          '<code class="tmpl-tok tmpl-tok-var shrink-0 text-xs font-mono">.' + label + '</code>' +
+          '<span class="min-w-0 flex-1 truncate text-[11px] text-muted-foreground dark:text-zinc-400">' + escapeHtml(v.desc) + '</span>' +
+          '<span class="shrink-0 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">' + v.type + '</span>' +
+          '</li>';
+      }
+      list.innerHTML = html;
+      list.classList.remove('hidden');
+      var textarea = document.getElementById('payload_template');
+      textarea.setAttribute('aria-expanded', 'true');
+      textarea.setAttribute('aria-activedescendant', 'tmpl-ac-' + tmplAc.active);
+      var activeEl = document.getElementById('tmpl-ac-' + tmplAc.active);
+      if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+    }
+
+    function positionTemplateAutocomplete(pos) {
+      var textarea = document.getElementById('payload_template');
+      var list = document.getElementById('tmpl-ac');
+      var editor = textarea.closest('.tmpl-editor');
+      var caret = caretOffset(textarea, pos);
+      var left = Math.max(0, Math.min(caret.left - 4, editor.clientWidth - list.offsetWidth));
+      var below = caret.top + caret.height + 4;
+      // Flip above the caret when the list would be clipped by the modal panel.
+      var panel = document.getElementById('form-panel').getBoundingClientRect();
+      var editorTop = editor.getBoundingClientRect().top;
+      var top = below;
+      if (editorTop + below + list.offsetHeight > panel.bottom - 8 && editorTop + caret.top - list.offsetHeight - 4 > panel.top) {
+        top = caret.top - list.offsetHeight - 4;
+      }
+      list.style.left = left + 'px';
+      list.style.top = top + 'px';
+    }
+
+    function setTemplateAcActive(i) {
+      if (i === tmplAc.active) return;
+      tmplAc.active = i;
+      var ctx = templateAcContext(document.getElementById('payload_template'));
+      renderTemplateAutocomplete(ctx ? ctx.query : '');
+    }
+
+    function closeTemplateAutocomplete() {
+      if (!tmplAc.open) return;
+      tmplAc.open = false;
+      document.getElementById('tmpl-ac').classList.add('hidden');
+      var textarea = document.getElementById('payload_template');
+      textarea.setAttribute('aria-expanded', 'false');
+      textarea.removeAttribute('aria-activedescendant');      // Validation was paused while the list was open.
+      debouncedValidate();
+    }
+
+    function acceptTemplateAutocomplete(i) {
+      var textarea = document.getElementById('payload_template');
+      var v = tmplAc.items[i];
+      if (!v) return;
+      var end = textarea.selectionStart;
+      // Swallow the rest of a name and a closing "}}" already typed after the caret.
+      var after = textarea.value.slice(end).match(/^\w*(\s*-?\}\})?/);
+      end += after[0].length;
+      closeTemplateAutocomplete();
+      textarea.focus();
+      textarea.setRangeText('{{`{{`}}.' + v.name + '{{`}}`}}', tmplAc.start, end, 'end');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    (function wireTemplateAutocomplete() {
+      var textarea = document.getElementById('payload_template');
+      textarea.addEventListener('keydown', function(e) {
+        if (!tmplAc.open) return;
+        var n = tmplAc.items.length;
+        if (e.key === 'ArrowDown') { e.preventDefault(); setTemplateAcActive((tmplAc.active + 1) % n); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setTemplateAcActive((tmplAc.active - 1 + n) % n); }
+        else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptTemplateAutocomplete(tmplAc.active); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeTemplateAutocomplete(); }
+      });
+      // Caret moves without input (clicks, arrow keys) should re-evaluate the context.
+      textarea.addEventListener('keyup', function(e) {
+        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) !== -1) updateTemplateAutocomplete();
+      });
+      textarea.addEventListener('click', updateTemplateAutocomplete);
+      textarea.addEventListener('blur', closeTemplateAutocomplete);
+    })();
+
+    document.getElementById('payload_template').addEventListener('input', renderTemplateHighlight);
+    document.getElementById('payload_template').addEventListener('input', updateTemplateAutocomplete);
+    window.addEventListener('resize', autosizeTemplate);
     document.getElementById('payload_template').addEventListener('input', debouncedValidate);
     document.getElementById('payload_template').addEventListener('paste', function() {
       setTimeout(debouncedValidate, 0);

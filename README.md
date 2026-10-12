@@ -187,6 +187,8 @@ Example:
 
 String fields like `.TextBody` output a quoted, properly escaped JSON string (e.g. `"hello\nworld"`), so do **not** add surrounding quotes in the template.
 
+In the web UI's rule editor, typing `{{` in *Payload Template* opens autocomplete suggestions for the variables above (↑/↓ to choose, Enter or Tab to insert, Esc to dismiss). Expressions are highlighted as you type, with unknown variables flagged in red, and hovering the **?** icon next to the field lists every variable — click one to insert it at the cursor.
+
 ## Forwarded emails
 
 When an email is forwarded by an intermediate mail server (e.g. Fastmail, Gmail), the SMTP envelope addresses (`MAIL FROM` / `RCPT TO`) differ from the original email headers (`From` / `To`). Mailrelay tracks both:

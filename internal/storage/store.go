@@ -401,10 +401,11 @@ func (s *Store) GetRule(ctx context.Context, id string) (*models.RuleRecord, err
 	return scanRule(row)
 }
 
+// ListRules returns all rules, most recently added first.
 func (s *Store) ListRules(ctx context.Context) ([]models.RuleRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, enabled, match_config, webhook_config, position, created_at, updated_at
-		 FROM rules ORDER BY position, created_at`)
+		 FROM rules ORDER BY position DESC, created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
