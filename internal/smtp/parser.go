@@ -8,7 +8,10 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/mail"
+	"regexp"
 	"strings"
+
+	"golang.org/x/text/encoding/htmlindex"
 
 	"github.com/gowthamgts/mailrelay/internal/models"
 )
@@ -24,26 +27,12 @@ func ParseEmail(r io.Reader) (*models.ParsedEmail, error) {
 		Headers: msg.Header,
 	}
 
-	// Parse From.
-	if from, err := msg.Header.AddressList("From"); err == nil && len(from) > 0 {
-		email.From = from[0].Address
+	if from := parseAddressList(msg.Header.Get("From")); len(from) > 0 {
+		email.From = from[0]
 	}
-
-	// Parse To.
-	if to, err := msg.Header.AddressList("To"); err == nil {
-		for _, addr := range to {
-			email.To = append(email.To, addr.Address)
-		}
-	}
-
-	// Parse CC.
-	if cc, err := msg.Header.AddressList("Cc"); err == nil {
-		for _, addr := range cc {
-			email.CC = append(email.CC, addr.Address)
-		}
-	}
-
-	email.Subject = msg.Header.Get("Subject")
+	email.To = parseAddressList(msg.Header.Get("To"))
+	email.CC = parseAddressList(msg.Header.Get("Cc"))
+	email.Subject = decodeHeader(msg.Header.Get("Subject"))
 
 	contentType := msg.Header.Get("Content-Type")
 	if contentType == "" {
@@ -75,6 +64,64 @@ func ParseEmail(r io.Reader) (*models.ParsedEmail, error) {
 	}
 
 	return email, nil
+}
+
+// headerDecoder decodes RFC 2047 encoded-words in any charset known to the
+// WHATWG encoding spec, not just the UTF-8/US-ASCII/ISO-8859-1 trio that the
+// standard library handles on its own.
+var headerDecoder = &mime.WordDecoder{
+	CharsetReader: func(charset string, input io.Reader) (io.Reader, error) {
+		enc, err := htmlindex.Get(charset)
+		if err != nil {
+			return nil, err
+		}
+		return enc.NewDecoder().Reader(input), nil
+	},
+}
+
+// decodeHeader decodes RFC 2047 encoded-words, falling back to the raw value.
+func decodeHeader(v string) string {
+	decoded, err := headerDecoder.DecodeHeader(v)
+	if err != nil {
+		return v
+	}
+	return decoded
+}
+
+var addressParser = &mail.AddressParser{WordDecoder: headerDecoder}
+
+// looseAddrRe matches anything that looks like an email address.
+var looseAddrRe = regexp.MustCompile(`[^\s<>()\[\]",;:@]+@[^\s<>()\[\]",;:@]+`)
+
+// parseAddressList returns the addresses in an address header. Real-world
+// senders often emit headers that violate RFC 5322 (unquoted special
+// characters in display names, unknown charsets, trailing junk), so when strict
+// parsing fails we fall back to extracting anything that looks like an address,
+// preferring the angle-bracketed ones.
+func parseAddressList(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+
+	var out []string
+	if list, err := addressParser.ParseList(v); err == nil {
+		for _, addr := range list {
+			out = append(out, addr.Address)
+		}
+		return out
+	}
+
+	for _, seg := range strings.Split(v, ">") {
+		if i := strings.LastIndex(seg, "<"); i >= 0 {
+			if m := looseAddrRe.FindString(seg[i+1:]); m != "" {
+				out = append(out, m)
+			}
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return looseAddrRe.FindAllString(v, -1)
 }
 
 func parseMultipart(r io.Reader, boundary string, email *models.ParsedEmail) error {

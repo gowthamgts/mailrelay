@@ -56,6 +56,30 @@ send "Plain text, minimal headers (broken webhook → failed)" \
   --body "The webhook target does not exist."
 
 # ---------------------------------------------------------------------------
+# NON-STANDARD HEADERS
+# ---------------------------------------------------------------------------
+
+send "RFC 2047 encoded subject + malformed From display name (alerts → delivered)" \
+  --to alert@alerts.example.com \
+  --from bounce@srs.example.com \
+  --header "From: Infra Bank: Alerts <monitor@infra.example.com>" \
+  --header "Subject: =?UTF-8?B?W3Rlc3RdIGVuY29kZWQgc3ViamVjdCDinJM=?=" \
+  --body "The From display name has an unquoted colon and the subject is base64 encoded."
+
+send "Empty encoded-word display name in From (alerts → delivered)" \
+  --to alert@alerts.example.com \
+  --from bounce@infra.example.com \
+  --header "From: =?UTF-8?B??= <monitor@infra.example.com>" \
+  --header "Subject: [test] empty encoded-word From display name" \
+  --body "Some bulk mailers send an empty =?UTF-8?B??= display name, which strict parsers reject."
+
+send "Windows-1252 encoded subject (alerts → delivered)" \
+  --to alert@alerts.example.com \
+  --from monitor@infra.example.com \
+  --header "Subject: =?windows-1252?Q?[test]_caf=E9_windows-1252_subject?=" \
+  --body "Subject uses a charset outside the Go standard library's built-in set."
+
+# ---------------------------------------------------------------------------
 # HTML-ONLY EMAILS
 # ---------------------------------------------------------------------------
 

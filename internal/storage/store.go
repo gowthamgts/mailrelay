@@ -153,6 +153,18 @@ func (s *Store) UpdateEmailStatus(ctx context.Context, id string, status models.
 	return err
 }
 
+// UpdateParsedEmail replaces the parsed content of an email (e.g. after
+// re-parsing its raw message) along with the derived header columns.
+func (s *Store) UpdateParsedEmail(ctx context.Context, id string, email *models.ParsedEmail) error {
+	headerTo, _ := json.Marshal(email.To)
+	parsedEmail, _ := json.Marshal(email)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE emails SET header_from = ?, header_to = ?, subject = ?, parsed_email = ? WHERE id = ?`,
+		email.From, string(headerTo), email.Subject, string(parsedEmail), id,
+	)
+	return err
+}
+
 func (s *Store) GetEmail(ctx context.Context, id string) (*models.EmailRecord, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, received_at, envelope_from, envelope_to, header_from, header_to, subject, status, rejection_reason, parsed_email, auth_result

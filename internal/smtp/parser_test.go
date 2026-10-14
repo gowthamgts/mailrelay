@@ -233,3 +233,88 @@ func TestMatchRecipient(t *testing.T) {
 		})
 	}
 }
+
+func TestParseEmailEncodedSubject(t *testing.T) {
+	raw := "From: alerts@bank.example\r\nTo: me@example.com\r\n" +
+		"Subject: =?UTF-8?B?RGViaXQgQWxlcnQ6IFlvdXIgSURGQyBGSVJTVCBCYW5rIENyZWRpdCBDYXJk?=\r\n\r\nbody"
+	email, err := ParseEmail(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("ParseEmail() error: %v", err)
+	}
+	if want := "Debit Alert: Your IDFC FIRST Bank Credit Card"; email.Subject != want {
+		t.Errorf("Subject = %q, want %q", email.Subject, want)
+	}
+}
+
+func TestDecodeHeader(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"Plain subject", "Plain subject"},
+		{"=?windows-1252?Q?Caf=E9?=", "Café"},
+		{"=?gb2312?B?xOO6ww==?=", "你好"},
+		{"=?unknown-charset?Q?x?=", "=?unknown-charset?Q?x?="},
+	}
+	for _, tt := range tests {
+		if got := decodeHeader(tt.in); got != tt.want {
+			t.Errorf("decodeHeader(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestParseAddressList(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"a@b.com", []string{"a@b.com"}},
+		{`"Bank" <a@b.com>, c@d.com`, []string{"a@b.com", "c@d.com"}},
+		{"=?windows-1252?Q?Caf=E9?= <a@b.com>", []string{"a@b.com"}},
+		// Malformed headers that net/mail rejects.
+		{"IDFC FIRST Bank: Alerts <alerts@bank.example>", []string{"alerts@bank.example"}},
+		{"Bank@Alerts <alerts@bank.example>", []string{"alerts@bank.example"}},
+		{"<alerts@bank.example>;", []string{"alerts@bank.example"}},
+		{"Name: a <a@b.com>, Other: c <c@d.com>", []string{"a@b.com", "c@d.com"}},
+		{"alerts@bank.example;", []string{"alerts@bank.example"}},
+	}
+	for _, tt := range tests {
+		got := parseAddressList(tt.in)
+		if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+			t.Errorf("parseAddressList(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+// Regression: some bulk mailers emit an empty encoded-word as the display
+// name, which net/mail rejects outright.
+func TestParseEmailEmptyEncodedWordFrom(t *testing.T) {
+	raw := "To: <idfc@example.com>\r\n" +
+		"From: =?UTF-8?B??= <noreply@idfcfirstbank.com>\r\n" +
+		"Subject: =?UTF-8?B?RGViaXQgQWxlcnQ6IFlvdXIgSURGQyBGSVJTVCBCYW5rIENyZWRpdCBDYXJk?=\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/alternative; boundary=\"_----------=_1791\"\r\n" +
+		"Content-Transfer-Encoding: binary\r\n\r\n" +
+		"--_----------=_1791\r\n" +
+		"Content-Disposition: inline\r\n" +
+		"Content-Transfer-Encoding: quoted-printable\r\n" +
+		"Content-Type: text/plain; charset=\"utf-8\"\r\n\r\n" +
+		"Transaction Successful! USD 11.09 spent on your IDFC FIRST=\r\n BANK Credit Card.\r\n" +
+		"--_----------=_1791--\r\n"
+	email, err := ParseEmail(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("ParseEmail() error: %v", err)
+	}
+	if email.From != "noreply@idfcfirstbank.com" {
+		t.Errorf("From = %q, want noreply@idfcfirstbank.com", email.From)
+	}
+	if len(email.To) != 1 || email.To[0] != "idfc@example.com" {
+		t.Errorf("To = %v, want [idfc@example.com]", email.To)
+	}
+	if want := "Debit Alert: Your IDFC FIRST Bank Credit Card"; email.Subject != want {
+		t.Errorf("Subject = %q, want %q", email.Subject, want)
+	}
+	if !strings.Contains(email.TextBody, "IDFC FIRST BANK Credit Card") {
+		t.Errorf("TextBody = %q, want decoded quoted-printable", email.TextBody)
+	}
+}

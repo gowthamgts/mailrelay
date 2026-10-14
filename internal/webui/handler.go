@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/base64"
@@ -418,6 +419,8 @@ func (h *Handler) handleReplay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.reparseRawEmail(r.Context(), id, email)
+
 	matched := h.engine.Match(email.ParsedEmail)
 	if len(matched) == 0 {
 		h.store.UpdateEmailStatus(r.Context(), id, models.EmailStatusDropped)
@@ -560,6 +563,31 @@ func (h *Handler) handleAttachment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", att.ContentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.Write(decoded)
+}
+
+// reparseRawEmail re-parses the stored raw message, if any, so replays pick up
+// parser fixes made since the email was received. Envelope and auth data come
+// from the SMTP transaction and are carried over unchanged.
+func (h *Handler) reparseRawEmail(ctx context.Context, id string, email *models.EmailRecord) {
+	if h.rawEmailDir == "" {
+		return
+	}
+	raw, err := os.ReadFile(filepath.Join(h.rawEmailDir, id+".eml"))
+	if err != nil {
+		return
+	}
+	parsed, err := smtpserver.ParseEmail(bytes.NewReader(raw))
+	if err != nil {
+		slog.Warn("failed to re-parse raw email for replay", "id", id, "error", err)
+		return
+	}
+	parsed.EnvelopeFrom = email.ParsedEmail.EnvelopeFrom
+	parsed.EnvelopeTo = email.ParsedEmail.EnvelopeTo
+	parsed.AuthResult = email.ParsedEmail.AuthResult
+	if err := h.store.UpdateParsedEmail(ctx, id, parsed); err != nil {
+		slog.Error("failed to save re-parsed email", "id", id, "error", err)
+	}
+	email.ParsedEmail = parsed
 }
 
 func (h *Handler) hasRawEmail(id string) bool {

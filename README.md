@@ -236,7 +236,7 @@ Enable with `webui.enabled: true`. Served at `http://<http.addr>/`.
 - Browse and search received emails
 - View email details, headers, body (text/HTML), and auth results
 - Download attachments and raw `.eml` files (when `raw_email_dir` is set)
-- Inspect webhook delivery outcomes and replay failed deliveries
+- Inspect webhook delivery outcomes and replay failed deliveries (when the raw `.eml` is available, replay re-parses it so parser fixes apply to old emails)
 - Real-time updates via SSE
 - Runtime settings management at `/settings`
 - Dark mode support
