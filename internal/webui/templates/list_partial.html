@@ -1,60 +1,50 @@
 {{define "list_partial"}}
-<div class="card overflow-hidden fade-in">
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-black/[0.06] dark:border-white/[0.05] bg-black/[0.02] dark:bg-white/[0.02]">
-          <th class="h-10 px-4 text-left text-[10px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-widest">Status</th>
-          <th class="h-10 px-4 text-left text-[10px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-widest">Subject</th>
-          <th class="h-10 px-4 text-left text-[10px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-widest hidden sm:table-cell">From</th>
-          <th class="h-10 px-4 text-left text-[10px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-widest hidden lg:table-cell">To</th>
-          <th class="h-10 px-4 text-right text-[10px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-widest">Received</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-black/[0.04] dark:divide-white/[0.04]">
-        {{if not .Emails}}
-        <tr>
-          <td colspan="5" class="px-4 py-16 text-center">
-            <div class="flex flex-col items-center gap-3">
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 dark:bg-amber-950/30">
-                <svg class="h-6 w-6 text-amber-500 dark:text-amber-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 9v.906a2.25 2.25 0 01-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 001.183 1.981l6.478 3.488m8.839 2.51l-4.66-2.51m0 0l-1.023-.55a2.25 2.25 0 00-2.134 0l-1.022.55m0 0l-4.661 2.51m16.5 1.615a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V8.844a2.25 2.25 0 011.183-1.98l7.5-4.04a2.25 2.25 0 012.134 0l7.5 4.04a2.25 2.25 0 011.183 1.98V19.5z" /></svg>
-              </div>
-              <p class="text-sm font-medium text-foreground dark:text-zinc-400">No emails found</p>
-              <p class="text-xs text-muted-foreground dark:text-zinc-600">Emails will appear here when received by the SMTP server</p>
-            </div>
-          </td>
-        </tr>
-        {{else}}
-        {{range .Emails}}
-        {{$color := statusColor .Status}}
-        <tr class="hover:bg-amber-50/40 dark:hover:bg-white/[0.025] transition-colors cursor-pointer group" onclick="openModal('{{.ID}}', event)">
-          <td class="px-4 py-3.5">
-            <span class="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-mono font-medium
-              {{if eq $color "green"}}bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 ring-1 ring-inset ring-emerald-600/20 dark:ring-emerald-500/20{{end}}
-              {{if eq $color "amber"}}bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 ring-1 ring-inset ring-amber-600/20 dark:ring-amber-500/20{{end}}
-              {{if eq $color "red"}}bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-400 ring-1 ring-inset ring-red-600/20 dark:ring-red-500/20{{end}}
-              {{if eq $color "orange"}}bg-orange-50 dark:bg-orange-950/60 text-orange-700 dark:text-orange-400 ring-1 ring-inset ring-orange-600/20 dark:ring-orange-500/20{{end}}
-              {{if eq $color "blue"}}bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 ring-1 ring-inset ring-blue-600/20 dark:ring-blue-500/20{{end}}
-              {{if eq $color "gray"}}bg-zinc-100 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/20{{end}}
-            ">{{statusLabel .Status}}</span>
-          </td>
-          <td class="px-4 py-3.5 font-medium text-foreground dark:text-zinc-200 max-w-xs truncate group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors">
-            {{if .Subject}}{{.Subject}}{{else}}<span class="text-muted-foreground dark:text-zinc-500 italic">(no subject)</span>{{end}}
-          </td>
-          <td class="px-4 py-3.5 text-muted-foreground dark:text-zinc-500 hidden sm:table-cell max-w-[200px] truncate">{{.DisplayFrom}}</td>
-          <td class="px-4 py-3.5 text-muted-foreground dark:text-zinc-500 hidden lg:table-cell max-w-[200px] truncate">{{joinStrings .DisplayTo}}</td>
-          <td class="px-4 py-3.5 text-right text-muted-foreground dark:text-zinc-600 whitespace-nowrap text-xs tabular-nums">{{timeAgo .ReceivedAt}}</td>
-        </tr>
-        {{end}}
-        {{end}}
-      </tbody>
-    </table>
-  </div>
+<div class="card">
+  <table class="w-full table-fixed text-sm">
+    <thead>
+      <tr class="border-b border-black/[0.06] dark:border-white/[0.06] text-left text-xs font-medium text-zinc-500">
+        <th class="h-10 pl-4 pr-0 sm:pr-2 w-7 sm:w-32 font-medium"><span class="sr-only sm:not-sr-only">Status</span></th>
+        <th class="h-10 px-3 font-medium">Subject</th>
+        <th class="h-10 px-3 w-[24%] font-medium hidden md:table-cell">From</th>
+        <th class="h-10 px-3 w-[18%] font-medium hidden lg:table-cell">To</th>
+        <th class="h-10 pl-3 pr-4 w-16 sm:w-32 text-right font-medium"><span class="hidden sm:inline">Received</span></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-black/[0.05] dark:divide-white/[0.05]">
+      {{if not .Emails}}
+      <tr>
+        <td colspan="5" class="px-4 py-20 text-center">
+          <div class="flex flex-col items-center gap-2">
+            <svg class="h-8 w-8 text-zinc-300 dark:text-zinc-600" fill="none" viewBox="0 0 24 24" stroke-width="1.25" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" /></svg>
+            <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">No emails found</p>
+            <p class="text-xs text-zinc-500">{{if or .Filter.Status .Filter.Search}}Try a different filter or search term.{{else}}Emails show up here as soon as the SMTP server receives them.{{end}}</p>
+          </div>
+        </td>
+      </tr>
+      {{else}}
+      {{range .Emails}}
+      <tr class="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors cursor-pointer" onclick="openModal('{{.ID}}', event)">
+        <td class="pl-4 pr-0 sm:pr-2 py-3">
+          <span class="sm:hidden block h-2 w-2 rounded-full {{$c := statusColor .Status}}{{if eq $c "green"}}bg-emerald-500{{else if eq $c "red"}}bg-red-500{{else if eq $c "orange"}}bg-amber-500{{else}}bg-zinc-400{{end}}" title="{{statusLabel .Status}}"></span>
+          <span class="hidden sm:inline-flex">{{template "status_badge" .Status}}</span>
+        </td>
+        <td class="px-3 py-3 min-w-0">
+          <p class="truncate font-medium text-zinc-900 dark:text-zinc-100">{{if .Subject}}{{.Subject}}{{else}}<span class="text-zinc-400 dark:text-zinc-500 font-normal italic">(no subject)</span>{{end}}</p>
+          <p class="md:hidden truncate text-xs text-zinc-500 mt-0.5">{{.DisplayFrom}}</p>
+        </td>
+        <td class="px-3 py-3 hidden md:table-cell"><p class="truncate text-zinc-600 dark:text-zinc-400">{{.DisplayFrom}}</p></td>
+        <td class="px-3 py-3 hidden lg:table-cell"><p class="truncate text-zinc-600 dark:text-zinc-400">{{joinStrings .DisplayTo}}</p></td>
+        <td class="pl-3 pr-4 py-3 text-right text-xs text-zinc-500 whitespace-nowrap tabular-nums" title="{{formatTime .ReceivedAt}}"><span class="hidden sm:inline">{{timeAgo .ReceivedAt}}</span><span class="sm:hidden">{{timeAgoShort .ReceivedAt}}</span></td>
+      </tr>
+      {{end}}
+      {{end}}
+    </tbody>
+  </table>
 
   {{/* Pagination */}}
   {{if gt .TotalPages 1}}
   <div class="flex items-center justify-between border-t border-black/[0.05] dark:border-white/[0.04] px-4 py-3">
-    <p class="text-xs text-muted-foreground dark:text-zinc-600">
+    <p class="text-xs text-zinc-500">
       Showing <span class="font-medium text-foreground dark:text-zinc-300">{{add (.Filter.Offset) 1}}</span>–<span class="font-medium text-foreground dark:text-zinc-300">{{if gt .Total (add (.Filter.Offset) .PerPage)}}{{add (.Filter.Offset) .PerPage}}{{else}}{{.Total}}{{end}}</span> of <span class="font-medium text-foreground dark:text-zinc-300">{{.Total}}</span>
     </p>
     <nav class="flex items-center gap-1">
@@ -67,7 +57,7 @@
       {{range pageNumbers .Page .TotalPages}}
       <a href="/?page={{.}}{{if $.Filter.Status}}&status={{$.Filter.Status}}{{end}}{{if $.Filter.Search}}&q={{$.Filter.Search}}{{end}}"
          class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold transition-colors
-         {{if eq . $.Page}}bg-amber-500 text-white shadow-sm{{else}}border border-black/[0.08] dark:border-white/[0.07] text-muted-foreground dark:text-zinc-400 hover:bg-black/[0.04] dark:hover:bg-white/[0.05]{{end}}">
+         {{if eq . $.Page}}bg-zinc-900 text-white dark:bg-white dark:text-zinc-900{{else}}border border-black/[0.08] dark:border-white/[0.07] text-muted-foreground dark:text-zinc-400 hover:bg-black/[0.04] dark:hover:bg-white/[0.05]{{end}}">
         {{.}}
       </a>
       {{end}}

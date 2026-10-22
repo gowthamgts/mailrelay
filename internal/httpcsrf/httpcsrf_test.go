@@ -187,3 +187,21 @@ func TestRandomToken_HasExpectedLength(t *testing.T) {
 		t.Errorf("token length = %d, want 43", len(token))
 	}
 }
+
+func TestIsSecure(t *testing.T) {
+	plain := httptest.NewRequest(http.MethodGet, "http://192.168.1.10:2623/", nil)
+	if IsSecure(plain) {
+		t.Error("plain HTTP request reported as secure")
+	}
+
+	proxied := httptest.NewRequest(http.MethodGet, "http://mailrelay.internal/", nil)
+	proxied.Header.Set("X-Forwarded-Proto", "https")
+	if !IsSecure(proxied) {
+		t.Error("request behind TLS-terminating proxy not reported as secure")
+	}
+
+	direct := httptest.NewRequest(http.MethodGet, "https://mailrelay.example.com/", nil)
+	if !IsSecure(direct) {
+		t.Error("direct TLS request not reported as secure")
+	}
+}

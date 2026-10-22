@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"text/template"
 	"time"
 
@@ -22,19 +23,29 @@ import (
 
 // Dispatcher sends webhook requests for matched rules.
 type Dispatcher struct {
-	client    *http.Client
-	retryMu   sync.RWMutex
-	retry     models.RetryConfig
-	userAgent string
+	client       *http.Client
+	retryMu      sync.RWMutex
+	retry        models.RetryConfig
+	userAgent    string
+	allowPrivate atomic.Bool
 }
 
-// NewDispatcher creates a new webhook dispatcher.
+// NewDispatcher creates a new webhook dispatcher. It can reach any address
+// until SetAllowPrivateNetworks(false) is called; main applies the config.
 func NewDispatcher(retry models.RetryConfig, version string) *Dispatcher {
-	return &Dispatcher{
-		client:    &http.Client{},
+	d := &Dispatcher{
 		retry:     retry,
 		userAgent: "mailrelay/" + version,
 	}
+	d.allowPrivate.Store(true)
+	d.client = &http.Client{Transport: newTransport(&d.allowPrivate)}
+	return d
+}
+
+// SetAllowPrivateNetworks controls whether webhooks (and the UI's Test button)
+// may connect to loopback, private, link-local and other internal addresses.
+func (d *Dispatcher) SetAllowPrivateNetworks(allow bool) {
+	d.allowPrivate.Store(allow)
 }
 
 // Dispatch fires webhooks for all matched rules concurrently and returns results.
@@ -113,6 +124,14 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 			metrics.WebhookDispatchesTotal.WithLabelValues(rule.Name, "success").Inc()
 			result.Status = "success"
 			result.ResponseBody = respBody
+			return result
+		}
+
+		if errors.Is(lastErr, ErrPrivateAddress) {
+			slog.Error("webhook blocked (private address)", "rule", rule.Name, "error", lastErr)
+			metrics.WebhookDispatchesTotal.WithLabelValues(rule.Name, "rejected").Inc()
+			result.Status = "rejected"
+			result.Error = lastErr.Error()
 			return result
 		}
 

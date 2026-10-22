@@ -1,266 +1,172 @@
 <p align="center">
-  <img src="assets/logo.png" alt="mailrelay logo" width="120">
+  <img src="assets/logo.png" alt="mailrelay logo" width="96">
 </p>
 
 <h1 align="center">mailrelay</h1>
 
-<p align="center">A lightweight Go service that accepts inbound emails via SMTP, matches them against configurable rules, and dispatches webhook calls. Includes an optional web UI for inspecting email history and delivery status.</p>
+<p align="center">Turn incoming email into webhooks. A small, self-hosted SMTP server that checks each email against your rules and sends the matches to your webhooks, with a web UI to see what arrived and how each webhook responded.</p>
 
-> **Disclaimer:** This project was generated with the assistance of AI (Claude) and is not suitable for production use. It has not been audited for security, thoroughly tested, or battle-tested under real-world load. Use it for experimentation, learning, or as a starting point — but review and harden the code before deploying it anywhere that matters.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dashboard-dark.png">
+    <img src="docs/screenshots/dashboard-light.png" alt="mailrelay dashboard showing received emails and their delivery status">
+  </picture>
+</p>
 
-## How it works
+Point an MX record (or a forwarding rule) at mailrelay and wire email into the things that only speak HTTP:
 
-```
-Incoming Email (SMTP)
-        │
-        ▼
-┌───────────────┐
-│  Auth Checks  │──▶ SPF / DKIM / DMARC / ARC
-│  (optional)   │
-└───────┬───────┘
-        │
-        ▼
-┌───────────────┐
-│ Rule Matching │──▶ Glob & regex patterns on from/to/subject/domain
-└───────┬───────┘
-        │
-        ▼
-┌───────────────┐
-│   Webhooks    │──▶ HTTP POST with JSON payload or custom template
-│  (async)      │    Exponential backoff retry on failure
-└───────────────┘
-```
-
-The SMTP server returns `250 OK` immediately after accepting an email. Webhook dispatch happens asynchronously in background goroutines — failed webhooks never cause email rejection.
+- **Bank and card alerts** → your budgeting app (Firefly III, Actual)
+- **Receipts and invoices** → Paperless-ngx or your accounting tool
+- **Monitoring alerts** → ntfy, Slack, Discord, PagerDuty
+- **A support address** → your helpdesk (Zammad, Linear, a custom API)
+- **Shipping notifications** → Home Assistant
+- **Anything else** → n8n, Zapier-style automations, your own service
 
 ## Quick start
 
-### From source
+All you need is Docker. This starts mailrelay plus a small echo server that serves as a test webhook:
 
 ```bash
-git clone https://github.com/gowthamgts/mailrelay.git
-cd mailrelay
-go build ./cmd/mailrelay
-
-cp config.example.yaml config.yaml
-# edit config.yaml — enable the web UI, then create rules from the browser
-
-./mailrelay
-# or: ./mailrelay -config /path/to/config.yaml
+curl -fsSLO https://raw.githubusercontent.com/gowthamgts/mailrelay/main/docker-compose.quickstart.yaml
+docker compose -f docker-compose.quickstart.yaml up -d
 ```
 
-### With Docker
-
-The Docker image stores all persistent data under `/data` (database, raw emails, optional config file). The web UI is enabled by default.
+Send it an email (plain `curl` speaks SMTP):
 
 ```bash
-docker run -d \
-  --name mailrelay \
-  -p 25:25 -p 2623:2623 \
+curl smtp://localhost:2525 --mail-from me@example.com --mail-rcpt hello@example.com --upload-file - <<'EOF'
+From: me@example.com
+To: hello@example.com
+Subject: Hello from mailrelay
+
+It works!
+EOF
+```
+
+Then:
+
+1. Open **http://localhost:2623**. The email is there, marked *Dropped* because no rule matched yet.
+2. Go to **Rules → New rule**, leave the conditions empty (matches everything) and set the webhook URL to `http://echo:8080/`.
+3. Open the email and click **Replay**. It is now *Delivered*, and the response body shows exactly what your webhook received.
+
+Clean up with `docker compose -f docker-compose.quickstart.yaml down -v`.
+
+## Deploy
+
+**Docker.** For a real server, start from [`docker-compose.example.yaml`](docker-compose.example.yaml), or:
+
+```bash
+docker run -d --name mailrelay \
+  -p 25:25 -p 127.0.0.1:2623:2623 \
   -v mailrelay_data:/data \
   -e MAILRELAY_SMTP__DOMAIN=mx.example.com \
   ghcr.io/gowthamgts/mailrelay:latest
 ```
 
-To use a config file instead, mount it at `/data/config.yaml:ro`.
+Add `-e MAILRELAY_WEBHOOK__ALLOW_PRIVATE_NETWORKS=true` if your webhooks point at services on your network. The image keeps everything under `/data` (SQLite database, raw `.eml` files, and an optional `config.yaml`) and enables the web UI.
 
-A `docker-compose.example.yaml` is also included in the repo.
+**Binary.** Download a release from the [releases page](https://github.com/gowthamgts/mailrelay/releases), or build it with `go build ./cmd/mailrelay`. Then run `./mailrelay -config config.yaml`.
 
-## Configuration
+> [!IMPORTANT]
+> The web UI has no login unless you configure `http.auth` (OIDC). Keep port 2623 on localhost, or put it behind a reverse proxy that handles auth. Also set `smtp.allowed_recipients` so only your addresses are accepted.
 
-Configuration is loaded in layers (highest priority wins):
+## How it works
 
-1. **Hardcoded defaults**
-2. **Config file** (optional) — YAML, JSON, or TOML
-3. **Environment variables** — `MAILRELAY_` prefix, `__` as nesting delimiter (e.g. `MAILRELAY_SMTP__DOMAIN`)
+```
+SMTP ──▶ SPF / DKIM / DMARC ──▶ rule matching ──▶ webhooks (async, with retries)
+               (off | log | enforce)          every matching rule fires
+```
 
-See [`config.example.yaml`](config.example.yaml) for the full reference with all available options and their defaults.
+mailrelay replies `250 OK` as soon as it accepts an email. Webhooks are sent in the background with exponential backoff, so a slow or failing webhook never bounces mail. Every attempt is recorded, and any email can be replayed from the UI.
 
-### Key defaults
+## Rules
 
-| Setting                     | Default          |
-| --------------------------- | ---------------- |
-| `smtp.addr`                 | `0.0.0.0:25`     |
-| `smtp.max_message_bytes`    | 25 MB            |
-| `http.addr`                 | `127.0.0.1:2623` |
-| `webui.enabled`             | `false`          |
-| `webui.retention_days`      | 7                |
-| `retry.max_retries`         | 3                |
-| `retry.timeout`             | 30s              |
-| `retry.retry_on_timeout`    | `true`           |
-| `auth.{spf,dkim,dmarc,arc}` | `log`            |
+Rules are created in the web UI and take effect immediately. Each rule has **conditions** and a **webhook**.
 
-## Rule matching
+- **Fields**: From, To, CC, Subject, Body, any header, the SMTP envelope (`MAIL FROM` / `RCPT TO`), and the domain of each address.
+- **Patterns**: globs by default (`alerts@*`, `*.example.com`); wrap a pattern in slashes for a regex (`/^\[URGENT\]/`, or `/(?i)invoice/` to ignore case).
+- **Match all or any** of the conditions. A rule with no conditions matches every email.
+- Every matching rule fires, not just the first one.
+- Each webhook can override the timeout and retry settings, and the **Test** button checks that the URL is reachable.
+- Webhooks can't reach private or internal addresses (localhost, your LAN, Docker networks, Tailscale, cloud metadata) unless you set `webhook.allow_private_networks: true`. Turn it on if your webhooks point at self-hosted services.
 
-Rules are created and managed via the web UI at `/rules` and stored in SQLite. Each rule pairs a **matcher** (which emails to act on) with a **webhook** (where to send them). Rules take effect immediately — no restart required.
+### Payload
 
-### Condition builder
-
-Each rule has zero or more conditions. Conditions can match against:
-
-| Field | Description |
-| ----- | ----------- |
-| `From` | Header From (original sender, e.g. `info@netflix.com`) |
-| `To` | Header To (original recipient) |
-| `CC` | Header CC |
-| `Mail From (envelope)` | SMTP `MAIL FROM` (may differ for forwarded emails) |
-| `Rcpt To (envelope)` | SMTP `RCPT TO` (actual delivery recipient) |
-| `Subject` | Email subject line |
-| `From Domain` | Domain part of header From |
-| `To Domain` | Domain part of header To |
-| `Mail From Domain` | Domain part of envelope From |
-| `Rcpt To Domain` | Domain part of envelope To |
-| `Header` | Match a specific email header by name and value pattern |
-| `Body` | Match text or HTML body content |
-
-- **Glob patterns** (default): `support@*`, `*.example.com`, `ALERT*`
-- **Regex patterns**: wrap in `/…/` for full regex, e.g. `/^\[URGENT\]/`
-- **Match mode**: "All conditions" (AND) or "Any condition" (OR)
-- No conditions = catch-all, matches all emails
-- Every matching rule fires its webhook (not first-match-wins)
-
-### Per-webhook overrides
-
-Each rule's webhook can optionally override the global retry/timeout settings. When creating or editing a rule in the web UI, expand the **Advanced** section to set:
-
-- **Timeout** (seconds, `0` = no timeout) — per-request HTTP timeout
-- **Max Retries** — maximum delivery attempts
-- **Initial Wait** / **Max Wait** (seconds) — exponential backoff bounds
-- **Retry on Timeout** — whether to retry when a request times out (Yes / No / Use global default)
-
-Empty fields fall back to the global defaults configured in Settings. These overrides are stored per-webhook and do not require a restart.
-
-### Test connectivity
-
-When creating or editing a rule, click the **Test** button next to the webhook URL to verify the endpoint is reachable. This sends a lightweight HTTP request (an empty `{}` JSON body) with a 5-second timeout and shows the HTTP status along with the response body (pretty-printed when it's JSON, capped at 64 KB), or the error encountered.
-
-## Webhook payload
-
-When `payload_template` is omitted, the full parsed email is sent as JSON:
+With no template, the webhook receives the whole parsed email:
 
 ```json
 {
   "from": "sender@example.com",
-  "to": ["recipient@example.com"],
-  "subject": "Hello World",
-  "text_body": "Plain text content",
-  "html_body": "<p>HTML content</p>",
-  "attachments": [
-    {
-      "filename": "report.pdf",
-      "content_type": "application/pdf",
-      "content": "base64..."
-    }
-  ],
-  "auth_result": {
-    "spf": "pass",
-    "dkim": "pass",
-    "dmarc": "pass",
-    "arc": "none"
-  },
-  "envelope_from": "sender@example.com",
-  "envelope_to": ["recipient@example.com"]
+  "to": ["you@example.com"],
+  "subject": "Hello",
+  "text_body": "…",
+  "html_body": "…",
+  "attachments": [{ "filename": "a.pdf", "content_type": "application/pdf", "content": "base64…" }],
+  "auth_result": { "spf": "pass", "dkim": "pass", "dmarc": "pass", "arc": "none" },
+  "envelope_from": "bounce@example.com",
+  "envelope_to": ["you@example.com"]
 }
 ```
 
-Custom templates use Go's `text/template` syntax. Every field is pre-encoded as a JSON value, so you can embed it directly without worrying about escaping:
-
-| Template variable   | JSON type        |
-| ------------------- | ---------------- |
-| `{{.From}}`         | string           |
-| `{{.To}}`           | array of strings |
-| `{{.CC}}`           | array of strings |
-| `{{.Subject}}`      | string           |
-| `{{.TextBody}}`     | string           |
-| `{{.HTMLBody}}`     | string           |
-| `{{.Headers}}`      | object           |
-| `{{.Attachments}}`  | array of objects |
-| `{{.AuthResult}}`   | object           |
-| `{{.EnvelopeFrom}}` | string           |
-| `{{.EnvelopeTo}}`   | array of strings |
-
-Example:
+Or write a [Go template](https://pkg.go.dev/text/template). Every variable is already JSON-encoded, so don't put quotes around it:
 
 ```
-{"text": {{.TextBody}}, "from": {{.From}}, "to": {{.To}}}
+{"text": {{ .Subject }}, "from": {{ .From }}, "body": {{ .TextBody | default .HTMLBody }}}
 ```
 
-String fields like `.TextBody` output a quoted, properly escaped JSON string (e.g. `"hello\nworld"`), so do **not** add surrounding quotes in the template.
+| Variables | Functions |
+| --- | --- |
+| `.From` `.To` `.CC` `.Subject` `.TextBody` `.HTMLBody` `.Headers` `.Attachments` `.AuthResult` `.EnvelopeFrom` `.EnvelopeTo` | `first`, `last`, `join ", "`, `default <fallback>`. Chain them: `{{ .CC \| default .To \| first }}` |
 
-Fields missing from the email (e.g. `.TextBody` on an HTML-only message, or `.CC` with no Cc header) render as `null`, so the payload is always valid JSON.
+Missing fields render as `null`, so the output is always valid JSON. The editor in the UI autocompletes variables and flags mistakes as you type.
 
-#### Template functions
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/email-detail-dark.png">
+    <img src="docs/screenshots/email-detail-light.png" alt="Email detail showing one successful and one failed webhook delivery with the response body" width="49%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/rules-dark.png">
+    <img src="docs/screenshots/rules-light.png" alt="Rules page listing rules with their conditions and webhook URLs" width="49%">
+  </picture>
+</p>
 
-These helpers take and return JSON values, so they can be used anywhere a variable can. Use them with a pipe (`{{ .To | first }}`) or as a call (`{{ first .To }}`).
+## Configuration
 
-| Function  | Example                                | Result                                                                       |
-| --------- | -------------------------------------- | ---------------------------------------------------------------------------- |
-| `first`   | `{{ .To \| first }}`                   | First element of an array, or `null` if it is empty                          |
-| `last`    | `{{ .To \| last }}`                    | Last element of an array, or `null` if it is empty                           |
-| `join`    | `{{ .To \| join ", " }}`               | Array joined into one string, e.g. `"a@x.com, b@x.com"` (`""` if empty)      |
-| `default` | `{{ .TextBody \| default "" }}`        | The fallback when the value is `null`, `""`, `[]` or `{}`                    |
-|           | `{{ .TextBody \| default .HTMLBody }}` | The fallback can be another variable                                         |
+Settings are layered: built-in defaults, then an optional config file (YAML, JSON or TOML), then `MAILRELAY_` environment variables, with `__` for nesting (`MAILRELAY_SMTP__DOMAIN`). Lists such as `smtp.allowed_recipients` and auth providers must go in the file. [`config.example.yaml`](config.example.yaml) documents every option.
 
-Functions can be chained, e.g. `{{ .CC | default .To | first }}`.
+| Setting | Default |
+| --- | --- |
+| `smtp.addr` | `0.0.0.0:25` |
+| `smtp.allowed_recipients` | empty (accept any recipient) |
+| `http.addr` | `127.0.0.1:2623` (`0.0.0.0:2623` in Docker) |
+| `webui.enabled` | `false` (`true` in Docker) |
+| `webui.retention_days` | `7` |
+| `auth.spf` / `dkim` / `dmarc` | `log` (`off`, `log` or `enforce`; `enforce` rejects with SMTP 550) |
+| `retry.max_retries` / `retry.timeout` | `3` / `30s` |
+| `webhook.allow_private_networks` | `false` (blocks localhost, LAN, Docker, Tailscale and metadata addresses) |
 
-```
-{
-  "via": "email",
-  "from": {{ .From }},
-  "to": {{ .To | first }},
-  "text": {{ .TextBody | default "" }},
-  "alert_body": {{ .HTMLBody | default .TextBody }}
-}
-```
+Retry, auth mode, log level and retention can also be changed at runtime on the **Settings** page.
 
-In the web UI's rule editor, typing `{{` in *Payload Template* opens autocomplete suggestions for the variables above (↑/↓ to choose, Enter or Tab to insert, Esc to dismiss). Expressions are highlighted as you type, with unknown variables flagged in red, and hovering the **?** icon next to the field lists every variable and function — click one to insert it at the cursor.
+**Forwarded mail.** When a provider such as Gmail or Fastmail forwards to mailrelay, the envelope addresses differ from the headers. The UI shows the original header From/To and lists the envelope separately, and rules can match either one. ARC is verified so the original SPF/DKIM results survive forwarding.
 
-## Forwarded emails
+## Operations
 
-When an email is forwarded by an intermediate mail server (e.g. Fastmail, Gmail), the SMTP envelope addresses (`MAIL FROM` / `RCPT TO`) differ from the original email headers (`From` / `To`). Mailrelay tracks both:
+| Endpoint | |
+| --- | --- |
+| `/healthz` | Liveness probe, returns `ok` |
+| `/metrics` | Prometheus metrics (`mailrelay_*`). See [docs/prometheus.md](docs/prometheus.md) and the [Grafana dashboard](docs/grafana-dashboard.json). |
 
-- **Header From / To** — the original sender and recipients from the email headers (e.g. `info@account.netflix.com`)
-- **Mail From / Rcpt To** — the SMTP envelope addresses used by the forwarding server (e.g. a SES bounce address)
+`mailrelay -version` prints the build version.
 
-The web UI displays the header addresses as the primary From/To. When the email is forwarded (envelope differs from header), the SMTP envelope addresses are shown separately. ARC (Authenticated Received Chain) is always verified to preserve original SPF/DKIM results across forwarding hops.
-
-## Email authentication
-
-SPF, DKIM, DMARC, and ARC are verified for every inbound email. Each check can be set to `off`, `log` (default), or `enforce` (rejects on failure with SMTP 550).
-
-## Web UI
-
-Enable with `webui.enabled: true`. Served at `http://<http.addr>/`.
-
-- Create, edit, enable/disable, and delete rules
-- Browse and search received emails
-- View email details, headers, body (text/HTML), and auth results
-- Download attachments and raw `.eml` files (when `raw_email_dir` is set)
-- Inspect webhook delivery outcomes and replay failed deliveries (when the raw `.eml` is available, replay re-parses it so parser fixes apply to old emails)
-- Real-time updates via SSE
-- Runtime settings management at `/settings`
-- Dark mode support
-
-## Health check & metrics
-
-| Endpoint   | Description                               |
-| ---------- | ----------------------------------------- |
-| `/healthz` | Liveness probe — returns `ok`             |
-| `/metrics` | Prometheus metrics (`mailrelay_*` prefix) |
-
-See [docs/prometheus.md](docs/prometheus.md) for the full list of exposed metrics. A ready-to-import [Grafana dashboard](docs/grafana-dashboard.json) is also included.
-
-## Testing
+## Development
 
 ```bash
-# Install swaks: brew install swaks (macOS) or apt install swaks (Ubuntu)
-swaks --to test@alerts.example.com \
-      --from sender@example.com \
-      --server 127.0.0.1:25 \
-      --header "Subject: Test Alert" \
-      --body "Test email body"
+just dev        # run with config.dev.yaml (SMTP on :2525, UI on :2623)
+just dev-test   # send a batch of sample emails with swaks
+just test
 ```
 
 ## License
 
-MIT
+[MIT](LICENSE.md)

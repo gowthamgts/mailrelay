@@ -16,7 +16,7 @@ require (
 	github.com/knadh/koanf/providers/env v1.1.0
 	github.com/knadh/koanf/providers/file v1.2.1
 	github.com/knadh/koanf/v2 v2.4.1
-	github.com/playwright-community/playwright-go v0.5700.1
+	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/prometheus/client_golang v1.25.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/text v0.43.0
@@ -31,7 +31,6 @@ require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect

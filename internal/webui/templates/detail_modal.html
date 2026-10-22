@@ -1,22 +1,14 @@
 {{define "detail_modal"}}
 <div id="modal-backdrop" class="fixed inset-0 z-40 bg-black/40 dark:bg-black/60 backdrop-blur-sm" onclick="closeModal()" aria-hidden="true" style="animation: fadeIn 0.15s ease-out"></div>
-<div id="modal-panel" class="fixed inset-y-0 right-0 z-50 w-full sm:max-w-2xl overflow-y-auto bg-[#f5f4f2] dark:bg-[#0e0e10] shadow-2xl" role="dialog" aria-modal="true" style="animation: slideRight 0.2s ease-out">
+<div id="modal-panel" class="fixed inset-y-0 right-0 z-50 w-full sm:max-w-2xl overflow-y-auto bg-[#fafaf9] dark:bg-[#0b0b0d] shadow-2xl" role="dialog" aria-modal="true" style="animation: slideRight 0.2s ease-out">
   <style>
     @keyframes slideRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   </style>
 
-  <div class="flex h-14 items-center justify-between border-b border-black/[0.06] dark:border-white/[0.05] bg-[#f5f4f2]/95 dark:bg-[#0e0e10]/95 backdrop-blur-md px-4 sticky top-0 z-10">
+  <div class="flex h-14 items-center justify-between border-b border-black/[0.06] dark:border-white/[0.05] bg-[#fafaf9]/95 dark:bg-[#0b0b0d]/95 backdrop-blur-md px-4 sticky top-0 z-10">
     <div class="flex items-center gap-3 min-w-0">
-      {{$color := statusColor .Email.Status}}
-      <span class="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-mono font-medium
-        {{if eq $color "green"}}bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 ring-1 ring-inset ring-emerald-600/20 dark:ring-emerald-500/20{{end}}
-        {{if eq $color "amber"}}bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 ring-1 ring-inset ring-amber-600/20 dark:ring-amber-500/20{{end}}
-        {{if eq $color "red"}}bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 ring-1 ring-inset ring-red-600/20 dark:ring-red-500/20{{end}}
-        {{if eq $color "orange"}}bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-400 ring-1 ring-inset ring-orange-600/20 dark:ring-orange-500/20{{end}}
-        {{if eq $color "blue"}}bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-400 ring-1 ring-inset ring-blue-600/20 dark:ring-blue-500/20{{end}}
-        {{if eq $color "gray"}}bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/20{{end}}
-      ">{{statusLabel .Email.Status}}</span>
+      <span class="shrink-0">{{template "status_badge" .Email.Status}}</span>
       <h2 class="text-sm font-semibold truncate dark:text-zinc-100">
         {{if .Email.Subject}}{{.Email.Subject}}{{else}}<span class="text-muted-foreground dark:text-zinc-500 italic">(no subject)</span>{{end}}
       </h2>
@@ -85,7 +77,7 @@
     {{if .Email.AuthResult}}
     <div class="card">
       <div class="px-4 py-3 border-b border-border dark:border-zinc-800">
-        <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider">Authentication</h3>
+        <h3 class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Authentication</h3>
       </div>
       <div class="p-3 flex flex-wrap gap-2">
         {{$ar := .Email.AuthResult}}
@@ -112,7 +104,7 @@
     {{/* Deliveries */}}
     <div class="card">
       <div class="px-4 py-3 border-b border-border dark:border-zinc-800">
-        <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider">Webhook Deliveries</h3>
+        <h3 class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Webhook deliveries</h3>
       </div>
       {{if not .Deliveries}}
       <div class="p-6 text-center">
@@ -125,12 +117,12 @@
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium dark:text-zinc-200">{{.RuleName}}</span>
             {{$dc := deliveryStatusColor .Status}}
-            <span class="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-mono font-medium
-              {{if eq $dc "green"}}bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 ring-1 ring-inset ring-emerald-600/20 dark:ring-emerald-500/20{{end}}
-              {{if eq $dc "red"}}bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 ring-1 ring-inset ring-red-600/20 dark:ring-red-500/20{{end}}
-              {{if eq $dc "orange"}}bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-400 ring-1 ring-inset ring-orange-600/20 dark:ring-orange-500/20{{end}}
-              {{if eq $dc "gray"}}bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/20{{end}}
-            ">{{deliveryStatusLabel .Status}}</span>
+            <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium
+              {{if eq $dc "green"}}bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400{{end}}
+              {{if eq $dc "red"}}bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400{{end}}
+              {{if eq $dc "orange"}}bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400{{end}}
+              {{if eq $dc "gray"}}bg-zinc-100 text-zinc-600 dark:bg-white/[0.06] dark:text-zinc-400{{end}}">
+              <span class="h-1.5 w-1.5 rounded-full {{if eq $dc "green"}}bg-emerald-500{{else if eq $dc "red"}}bg-red-500{{else if eq $dc "orange"}}bg-amber-500{{else}}bg-zinc-400{{end}}"></span>{{deliveryStatusLabel .Status}}</span>
           </div>
           <div class="flex items-center gap-3 text-xs text-muted-foreground dark:text-zinc-500">
             {{if gt .StatusCode 0}}<span class="font-mono">HTTP {{.StatusCode}}</span>{{end}}
@@ -156,7 +148,7 @@
     {{if and .Email.ParsedEmail (or .Email.ParsedEmail.TextBody .Email.ParsedEmail.HTMLBody)}}
     <div class="card">
       <div class="px-4 py-3 border-b border-border dark:border-zinc-800 flex items-center justify-between">
-        <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider">Body</h3>
+        <h3 class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Body</h3>
         <div class="flex items-center gap-2">
           <button onclick="copyModalBodyContent()" id="mbody-copy-btn"
             class="inline-flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 h-7 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">
@@ -198,7 +190,7 @@
     {{if and .Email.ParsedEmail (gt (len .Email.ParsedEmail.Attachments) 0)}}
     <div class="card">
       <div class="px-4 py-3 border-b border-border dark:border-zinc-800">
-        <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider">Attachments</h3>
+        <h3 class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Attachments</h3>
       </div>
       <div class="divide-y divide-border dark:divide-zinc-800">
         {{$emailID := .Email.ID}}
@@ -222,7 +214,7 @@
     {{if .HasRawEmail}}
     <div class="card">
       <div class="px-4 py-3 border-b border-border dark:border-zinc-800 flex items-center justify-between">
-        <h3 class="text-xs font-medium text-muted-foreground dark:text-zinc-500 uppercase tracking-wider">Raw Source</h3>
+        <h3 class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Raw source</h3>
         <div class="flex items-center gap-2">
           <button onclick="copyModalRawSource()" id="modal-raw-copy-btn"
             class="hidden inline-flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 h-7 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">
