@@ -14,7 +14,7 @@ import (
 	"github.com/gowthamgts/mailrelay/internal/storage"
 	"github.com/gowthamgts/mailrelay/internal/webhook"
 	"github.com/gowthamgts/mailrelay/internal/webui"
-	playwright "github.com/playwright-community/playwright-go"
+	playwright "github.com/mxschmitt/playwright-go"
 )
 
 // uiHarness holds a running HTTP server with the web UI and a seeded database.
@@ -59,7 +59,7 @@ func newUIHarness(t *testing.T) *uiHarness {
 	handler.Register(mux)
 
 	// Wrap with CSRF middleware (uses localhost so secure=false).
-	wrapped := csrfMiddleware(mux, cfg.HTTP)
+	wrapped := csrfMiddleware(mux)
 	wrapped = withSecurityHeaders(wrapped)
 
 	srv := httptest.NewServer(wrapped)
@@ -131,10 +131,15 @@ func pwSetup(t *testing.T) playwright.Browser {
 	}
 
 	runOptions := &playwright.RunOptions{
-		SkipInstallBrowsers: false,
-		Verbose:             false,
+		Browsers:         []string{"chromium"},
+		OnlyInstallShell: true,
+		Verbose:          false,
 	}
 	if err := playwright.Install(runOptions); err != nil {
+		// In CI a failed install must fail loudly, or the UI tests silently stop running.
+		if os.Getenv("CI") != "" {
+			t.Fatalf("playwright install: %v", err)
+		}
 		t.Skipf("playwright install: %v", err)
 	}
 
@@ -595,11 +600,9 @@ func TestUI_StatusFilterWorks(t *testing.T) {
 	}
 	waitForSelector(t, page, "table tbody tr")
 
-	// Select "Failed" from the status dropdown.
-	if _, err := page.SelectOption("select[name='status']", playwright.SelectOptionValues{
-		Values: &[]string{"failed"},
-	}); err != nil {
-		t.Fatalf("select status: %v", err)
+	// Click the "Failed" tab in the status filter bar.
+	if err := page.Click("#stats-cards button:has-text('Failed')"); err != nil {
+		t.Fatalf("click status filter: %v", err)
 	}
 
 	time.Sleep(500 * time.Millisecond)

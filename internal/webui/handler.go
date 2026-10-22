@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"log/slog"
 	"math"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -88,6 +89,8 @@ func NewHandler(store *storage.Store, engine *rules.Engine, dispatcher *webhook.
 	funcMap := template.FuncMap{
 		"sub": func(a, b int) int { return a - b },
 		"add": func(a, b int) int { return a + b },
+		// authEnabled shows the logout link; HTTP auth can't change at runtime.
+		"authEnabled": func() bool { return config.HTTP.Auth.Enabled },
 		"timeAgo": func(t time.Time) string {
 			d := time.Since(t)
 			switch {
@@ -111,6 +114,19 @@ func NewHandler(store *storage.Store, engine *rules.Engine, dispatcher *webhook.
 					return "1 day ago"
 				}
 				return strconv.Itoa(days) + " days ago"
+			}
+		},
+		"timeAgoShort": func(t time.Time) string {
+			d := time.Since(t)
+			switch {
+			case d < time.Minute:
+				return "now"
+			case d < time.Hour:
+				return strconv.Itoa(int(d.Minutes())) + "m"
+			case d < 24*time.Hour:
+				return strconv.Itoa(int(d.Hours())) + "h"
+			default:
+				return strconv.Itoa(int(d.Hours()/24)) + "d"
 			}
 		},
 		"formatTime": func(t time.Time) string {
@@ -163,13 +179,23 @@ func NewHandler(store *storage.Store, engine *rules.Engine, dispatcher *webhook.
 		"statusLabel": func(s models.EmailStatus) string {
 			switch s {
 			case models.EmailStatusPartialFailure:
-				return "Partial Failure"
+				return "Partial"
 			default:
 				str := string(s)
 				if len(str) > 0 {
 					return strings.ToUpper(str[:1]) + str[1:]
 				}
 				return str
+			}
+		},
+		"statusFilters": func(st *storage.Stats) []statusFilter {
+			return []statusFilter{
+				{"", "All", "", st.Total},
+				{"delivered", "Delivered", "bg-emerald-500", st.Delivered},
+				{"failed", "Failed", "bg-red-500", st.Failed},
+				{"partial_failure", "Partial", "bg-amber-500", st.PartialFailure},
+				{"dropped", "Dropped", "bg-zinc-400", st.Dropped},
+				{"rejected", "Rejected", "bg-red-500", st.Rejected},
 			}
 		},
 		"deliveryStatusLabel": func(s string) string {
@@ -241,12 +267,14 @@ func NewHandler(store *storage.Store, engine *rules.Engine, dispatcher *webhook.
 			b, _ := json.Marshal(m)
 			return template.JS(b)
 		},
-		"conditionLabel": func(c models.MatchCondition) string {
-			label := c.Field
+		"conditionField": func(c models.MatchCondition) string {
 			if c.Field == "header" && c.Header != "" {
-				label = c.Header
+				return c.Header
 			}
-			return label + ": " + c.Pattern
+			if label, ok := conditionFieldLabels[c.Field]; ok {
+				return label
+			}
+			return c.Field
 		},
 	}
 
@@ -325,7 +353,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
-	perPage := 10
+	perPage := 20
 
 	filter := storage.EmailFilter{
 		Status: r.URL.Query().Get("status"),
@@ -506,7 +534,11 @@ func (h *Handler) handleRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	emlPath := filepath.Join(h.rawEmailDir, id+".eml")
+	emlPath, ok := h.rawEmailPath(id)
+	if !ok {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
 	data, err := os.ReadFile(emlPath)
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
@@ -515,7 +547,7 @@ func (h *Handler) handleRaw(w http.ResponseWriter, r *http.Request) {
 
 	if r.URL.Query().Get("download") == "1" {
 		w.Header().Set("Content-Type", "message/rfc822")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.eml"`, id))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": id + ".eml"}))
 	} else {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
@@ -561,7 +593,7 @@ func (h *Handler) handleAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", att.ContentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	w.Write(decoded)
 }
 
@@ -572,7 +604,11 @@ func (h *Handler) reparseRawEmail(ctx context.Context, id string, email *models.
 	if h.rawEmailDir == "" {
 		return
 	}
-	raw, err := os.ReadFile(filepath.Join(h.rawEmailDir, id+".eml"))
+	emlPath, ok := h.rawEmailPath(id)
+	if !ok {
+		return
+	}
+	raw, err := os.ReadFile(emlPath)
 	if err != nil {
 		return
 	}
@@ -590,19 +626,29 @@ func (h *Handler) reparseRawEmail(ctx context.Context, id string, email *models.
 	email.ParsedEmail = parsed
 }
 
+// rawEmailPath returns the .eml path for an email ID. IDs come from the URL,
+// so anything that could escape rawEmailDir is rejected.
+func (h *Handler) rawEmailPath(id string) (string, bool) {
+	if h.rawEmailDir == "" || id == "" || id == "." || id == ".." || strings.ContainsAny(id, `/\`) {
+		return "", false
+	}
+	return filepath.Join(h.rawEmailDir, id+".eml"), true
+}
+
 func (h *Handler) hasRawEmail(id string) bool {
-	if h.rawEmailDir == "" {
+	emlPath, ok := h.rawEmailPath(id)
+	if !ok {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(h.rawEmailDir, id+".eml"))
+	_, err := os.Stat(emlPath)
 	return err == nil
 }
 
 func (h *Handler) removeRawEmail(id string) {
-	if h.rawEmailDir == "" {
+	emlPath, ok := h.rawEmailPath(id)
+	if !ok {
 		return
 	}
-	emlPath := filepath.Join(h.rawEmailDir, id+".eml")
 	if err := os.Remove(emlPath); err != nil && !os.IsNotExist(err) {
 		slog.Error("failed to remove raw email file", "path", emlPath, "error", err)
 	}
@@ -625,7 +671,33 @@ func (h *Handler) handleStatsHTML(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	h.render(w, "stats_cards", stats)
+	h.render(w, "stats_cards", map[string]any{
+		"Stats":  stats,
+		"Status": r.URL.Query().Get("status"),
+	})
+}
+
+// conditionFieldLabels are the display names for rule condition fields.
+var conditionFieldLabels = map[string]string{
+	"from":             "From",
+	"to":               "To",
+	"cc":               "CC",
+	"mail_from":        "Mail From",
+	"rcpt_to":          "Rcpt To",
+	"subject":          "Subject",
+	"from_domain":      "From domain",
+	"to_domain":        "To domain",
+	"mail_from_domain": "Mail From domain",
+	"rcpt_to_domain":   "Rcpt To domain",
+	"body":             "Body",
+}
+
+// statusFilter is one segment of the status filter bar on the emails page.
+type statusFilter struct {
+	Key   string
+	Label string
+	Dot   string
+	Count int
 }
 
 func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
@@ -1149,12 +1221,7 @@ func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 }
 
 func (h *Handler) csrfToken(w http.ResponseWriter, r *http.Request) string {
-	h.cfgMu.RLock()
-	httpCfg := h.config.HTTP
-	h.cfgMu.RUnlock()
-
-	secure := !strings.HasPrefix(httpCfg.Addr, "127.0.0.1:") && !strings.HasPrefix(httpCfg.Addr, "localhost:")
-	return httpcsrf.EnsureToken(w, r, secure)
+	return httpcsrf.EnsureToken(w, r, httpcsrf.IsSecure(r))
 }
 
 // ComputeStatus determines the aggregate email status from delivery results.

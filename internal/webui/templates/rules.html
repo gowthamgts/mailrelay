@@ -57,9 +57,9 @@
 </head>
 <body class="h-full text-foreground dark:text-zinc-100">
   <div class="min-h-full">
-    {{template "nav" (dict "ActivePage" "rules" "ShowLive" false "AuthEnabled" false)}}
+    {{template "nav" (dict "ActivePage" "rules" "ShowLive" false)}}
 
-    <main class="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       {{if .Error}}
       <div class="mb-6 card border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950 px-4 py-3 text-sm text-red-700 dark:text-red-400 fade-in">
         {{.Error}}
@@ -67,22 +67,22 @@
       {{end}}
 
       {{/* Header */}}
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-        <div class="space-y-0.5">
-          <h1 class="text-lg font-semibold text-foreground dark:text-zinc-100">Rules</h1>
-          <p class="text-sm text-muted-foreground dark:text-zinc-500">Route incoming emails to webhooks based on matching criteria</p>
+      <div class="flex items-center justify-between gap-3 mb-4">
+        <div>
+          <h1 class="text-base font-semibold text-zinc-900 dark:text-zinc-100">Rules</h1>
+          <p class="text-sm text-zinc-500">Every rule that matches an email fires its webhook.</p>
         </div>
-        <button onclick="openFormModal()" class="btn-primary inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 h-9 text-sm shadow-sm transition-all btn-press self-start sm:self-auto">
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-          Create Rule
+        <button onclick="openFormModal()" class="btn-primary inline-flex items-center justify-center gap-1.5 rounded-lg px-3 h-9 text-sm shadow-sm transition-all btn-press shrink-0">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+          New rule
         </button>
       </div>
 
       {{/* Rules List */}}
       {{if .Rules}}
-      <div class="grid gap-3 md:gap-4">
+      <div class="card divide-y divide-black/[0.05] dark:divide-white/[0.05]">
         {{range .Rules}}
-        <div class="card card-hover cursor-pointer transition-all {{if not .Enabled}}opacity-60{{end}}"
+        <div class="group cursor-pointer hover:bg-black/[0.015] dark:hover:bg-white/[0.02] transition-colors"
           onclick="openEditFromCard(this)"
           data-rule-id="{{.ID}}"
           data-rule-name="{{.Name}}"
@@ -98,62 +98,58 @@
           data-rule-webhook-max-wait="{{if .Webhook.MaxWait}}{{.Webhook.MaxWait}}{{end}}"
           data-rule-webhook-retry-on-timeout="{{if .Webhook.RetryOnTimeout}}{{if derefBool .Webhook.RetryOnTimeout}}yes{{else}}no{{end}}{{end}}"
         >
-          <div class="px-4 py-3.5 sm:px-5">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2.5">
-                  {{if .Enabled}}
-                  <span class="relative flex h-2 w-2 shrink-0">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  {{else}}
-                  <span class="inline-flex h-2 w-2 shrink-0 rounded-full bg-zinc-300 dark:bg-zinc-600"></span>
-                  {{end}}
-                  <h3 class="text-sm font-semibold text-foreground dark:text-zinc-100 truncate">{{.Name}}</h3>
-                </div>
-                <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                  {{$conds := .Match.Conditions}}
-                  {{if $conds}}
-                    {{if eq .Match.EffectiveMode "any"}}<span class="inline-flex items-center rounded-md bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/10 dark:ring-zinc-500/20 uppercase tracking-wider mr-0.5">any</span>{{end}}
-                    {{range $conds}}
-                    <span class="inline-flex items-center rounded-md bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700 dark:text-indigo-400 ring-1 ring-inset ring-indigo-600/10 dark:ring-indigo-500/20">{{conditionLabel .}}</span>
-                    {{end}}
-                  {{else}}
-                    <span class="inline-flex items-center rounded-md bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/10 dark:ring-zinc-500/20 italic">catch-all</span>
-                  {{end}}
-                </div>
+          <div class="flex items-start gap-3 px-4 py-3.5 sm:px-5 {{if not .Enabled}}opacity-55{{end}}">
+            <span class="mt-1.5 inline-flex h-2 w-2 shrink-0 rounded-full {{if .Enabled}}bg-emerald-500{{else}}bg-zinc-300 dark:bg-zinc-600{{end}}" title="{{if .Enabled}}Enabled{{else}}Paused{{end}}"></span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">{{.Name}}</h3>
+                {{if not .Enabled}}<span class="shrink-0 rounded-full bg-zinc-100 dark:bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-zinc-500">Paused</span>{{end}}
               </div>
-              <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">
-                <span class="inline-flex items-center rounded-md bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[11px] font-bold tracking-wide text-zinc-500 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/10 dark:ring-zinc-500/20">{{.Webhook.Method}}</span>
-                <form method="POST" action="/rules/{{.ID}}/toggle" class="inline">
-                  <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-                  <button type="submit" title="{{if .Enabled}}Disable{{else}}Enable{{end}}"
-                    class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-800 transition-colors">
-                    {{if .Enabled}}
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5" /></svg>
-                    {{else}}
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" /></svg>
-                    {{end}}
-                  </button>
-                </form>
-                <button onclick="openEditFromCard(this.closest('[data-rule-id]'))" title="Edit"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-200 hover:bg-muted dark:hover:bg-zinc-800 transition-colors">
-                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
-                </button>
-                <button
-                  hx-delete="/rules/{{.ID}}"
-                  hx-confirm="Delete rule '{{.Name}}'? This cannot be undone."
-                  hx-swap="none"
-                  title="Delete"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground dark:text-zinc-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
-                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                </button>
+              <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {{$conds := .Match.Conditions}}
+                {{if $conds}}
+                  {{$any := eq .Match.EffectiveMode "any"}}
+                  {{range $i, $c := $conds}}
+                  {{if gt $i 0}}<span class="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">{{if $any}}or{{else}}and{{end}}</span>{{end}}
+                  <span class="inline-flex items-center gap-1 rounded-md border border-black/[0.07] dark:border-white/[0.08] bg-zinc-50 dark:bg-white/[0.03] px-1.5 py-0.5 text-xs">
+                    <span class="text-zinc-500">{{conditionField $c}}</span>
+                    <span class="font-mono text-[11px] text-zinc-800 dark:text-zinc-200">{{$c.Pattern}}</span>
+                  </span>
+                  {{end}}
+                {{else}}
+                  <span class="inline-flex items-center rounded-md border border-dashed border-black/[0.12] dark:border-white/[0.12] px-1.5 py-0.5 text-xs text-zinc-500">Matches every email</span>
+                {{end}}
+              </div>
+              <div class="mt-2 flex items-center gap-2 min-w-0 text-xs text-zinc-500">
+                <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+                <span class="shrink-0 font-mono text-[11px] font-medium text-zinc-600 dark:text-zinc-400">{{.Webhook.Method}}</span>
+                <span class="font-mono text-[11px] truncate">{{.Webhook.URL}}</span>
               </div>
             </div>
-            <div class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground dark:text-zinc-500 truncate">
-              <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" /></svg>
-              <span class="font-mono truncate">{{.Webhook.URL}}</span>
+            <div class="flex items-center gap-0.5 shrink-0 sm:opacity-60 sm:group-hover:opacity-100 transition-opacity" onclick="event.stopPropagation()">
+              <form method="POST" action="/rules/{{.ID}}/toggle" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                <button type="submit" title="{{if .Enabled}}Pause{{else}}Resume{{end}}" aria-label="{{if .Enabled}}Pause{{else}}Resume{{end}} rule"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors">
+                  {{if .Enabled}}
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5" /></svg>
+                  {{else}}
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" /></svg>
+                  {{end}}
+                </button>
+              </form>
+              <button onclick="openEditFromCard(this.closest('[data-rule-id]'))" title="Edit" aria-label="Edit rule"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+              </button>
+              <button
+                hx-delete="/rules/{{.ID}}"
+                hx-confirm="Delete rule '{{.Name}}'? This cannot be undone."
+                hx-swap="none"
+                title="Delete" aria-label="Delete rule"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+              </button>
             </div>
           </div>
         </div>
@@ -168,7 +164,7 @@
         <p class="text-sm text-muted-foreground dark:text-zinc-500 mt-1">Create your first rule to start routing emails to webhooks</p>
         <button onclick="openFormModal()" class="btn-primary mt-5 inline-flex items-center gap-1.5 rounded-lg px-4 h-9 text-sm shadow-sm transition-all btn-press">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-          Create Rule
+          New rule
         </button>
       </div>
       {{end}}
@@ -662,12 +658,16 @@
 
       if (!value.trim()) return { errors: errors, warnings: warnings };
 
-      // 1. Check for unmatched template delimiters
-      var openCount = (value.match(/\{\{/g) || []).length;
-      var closeCount = (value.match(/\}\}/g) || []).length;
-      if (openCount !== closeCount) {
-        errors.push('Unmatched template delimiters: ' + openCount + ' opening {{`{{`}} vs ' + closeCount + ' closing {{`}}`}}');
-        return { errors: errors, warnings: warnings };
+      // 1. Check every opening delimiter has a closing one. Like Go's parser,
+      // a stray closing pair in plain text is fine (e.g. nested JSON objects).
+      var OPEN = '{' + '{', CLOSE = '}' + '}';
+      for (var pos = value.indexOf(OPEN); pos !== -1; pos = value.indexOf(OPEN, pos)) {
+        var closeAt = value.indexOf(CLOSE, pos + 2);
+        if (closeAt === -1) {
+          errors.push('Unclosed template action: {{`{{`}} without a matching {{`}}`}}');
+          return { errors: errors, warnings: warnings };
+        }
+        pos = closeAt + 2;
       }
 
       // 2. Parse all template expressions

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -13,6 +14,13 @@ const (
 	headerName = "X-CSRF-Token"
 	formField  = "csrf_token"
 )
+
+// IsSecure reports whether the request reached us over HTTPS, either directly
+// or via a TLS-terminating proxy. The CSRF cookie is only marked Secure then;
+// otherwise browsers drop it on plain-HTTP LAN addresses and every POST fails.
+func IsSecure(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
 
 // EnsureToken returns the CSRF token for this request, creating and setting
 // a cookie if one does not already exist.
@@ -63,4 +71,3 @@ func randomToken() string {
 	}
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
-

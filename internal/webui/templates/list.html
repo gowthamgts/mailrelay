@@ -17,71 +17,41 @@
   <div id="modal-container"></div>
 
   <div class="min-h-full">
-    {{template "nav" (dict "ActivePage" "emails" "ShowLive" true "AuthEnabled" .AuthEnabled)}}
+    {{template "nav" (dict "ActivePage" "emails" "ShowLive" true)}}
 
-    <main class="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
-      {{/* Stats Cards */}}
-      <div id="stats-cards" class="grid grid-cols-2 xs:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
-        {{template "stats_cards" .Stats}}
-      </div>
-
-      {{/* Filters */}}
-      <div class="card">
-        <div class="p-3 sm:p-4 flex flex-col md:flex-row gap-3 md:gap-4 items-stretch md:items-center">
-          <div class="relative flex-1 w-full md:max-w-md">
-            <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground dark:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+    <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-4">
+      {{/* Status filters + search */}}
+      <div class="flex flex-col lg:flex-row gap-3 lg:items-center">
+        <div id="stats-cards" class="-mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto">
+          {{template "stats_cards" (dict "Stats" .Stats "Status" .Filter.Status)}}
+        </div>
+        <div class="flex items-center gap-2 lg:ml-auto">
+          <div class="relative flex-1 lg:w-72">
+            <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
             <input
               type="search"
               name="q"
               value="{{.Filter.Search}}"
-              placeholder="Search emails..."
-              class="input-field h-9 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-black/[0.02] dark:bg-white/[0.03] pl-9 pr-3 text-sm placeholder:text-muted-foreground dark:placeholder:text-zinc-600 dark:text-zinc-200"
-              hx-get="/"
-              hx-trigger="input changed delay:300ms, search"
-              hx-target="#email-table"
-              hx-include="[name='status']"
-              hx-push-url="true"
+              placeholder="Search emails…"
+              aria-label="Search emails"
+              class="input-field h-9 w-full rounded-lg border border-black/[0.08] dark:border-white/[0.08] bg-white dark:bg-white/[0.03] pl-9 pr-3 text-sm placeholder:text-zinc-400 dark:placeholder:text-zinc-600 dark:text-zinc-200"
+              oninput="onSearchInput(this.value)"
             >
           </div>
-          <div class="relative w-full md:w-auto">
-            <select
-              name="status"
-              class="input-field h-9 w-full appearance-none rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-black/[0.02] dark:bg-white/[0.03] pl-3 pr-8 text-sm text-foreground dark:text-zinc-200 cursor-pointer"
-              hx-get="/"
-              hx-trigger="change"
-              hx-target="#email-table"
-              hx-include="[name='q']"
-              hx-push-url="true"
-            >
-              <option value="">All</option>
-              <option value="delivered" {{if eq .Filter.Status "delivered"}}selected{{end}}>Delivered</option>
-              <option value="dropped" {{if eq .Filter.Status "dropped"}}selected{{end}}>Dropped</option>
-              <option value="failed" {{if eq .Filter.Status "failed"}}selected{{end}}>Failed</option>
-              <option value="partial_failure" {{if eq .Filter.Status "partial_failure"}}selected{{end}}>Partial Failure</option>
-              <option value="rejected" {{if eq .Filter.Status "rejected"}}selected{{end}}>Rejected</option>
-            </select>
-            <svg class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground dark:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
-          </div>
-          <div class="md:ml-auto w-full md:w-auto">
-            <button
-              hx-post="/emails/delete-all"
-              hx-confirm="Delete ALL emails? This cannot be undone."
-              hx-swap="none"
-              class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 px-3 h-9 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/50 transition-colors btn-press">
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-              Clear All
-            </button>
-          </div>
+          <button
+            hx-post="/emails/delete-all"
+            hx-confirm="Delete ALL emails? This cannot be undone."
+            hx-swap="none"
+            title="Delete all emails"
+            aria-label="Delete all emails"
+            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-black/[0.08] dark:border-white/[0.08] bg-white dark:bg-white/[0.03] text-zinc-500 hover:text-red-600 hover:border-red-200 dark:hover:text-red-400 dark:hover:border-red-900/60 transition-colors btn-press">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+          </button>
         </div>
       </div>
 
-      {{/* Table */}}
-      <div class="card overflow-hidden">
-        <div class="w-full overflow-x-auto">
-          <div id="email-table" class="min-w-[640px]">
-            {{template "list_partial" .}}
-          </div>
-        </div>
+      <div id="email-table">
+        {{template "list_partial" .}}
       </div>
     </main>
 
@@ -157,9 +127,24 @@
     }
 
     function refreshContent() {
-      htmx.ajax('GET', '/api/stats-html', {target: '#stats-cards', swap: 'morph:innerHTML'});
+      var qs = window.location.search;
+      htmx.ajax('GET', '/api/stats-html' + qs, {target: '#stats-cards', swap: 'morph:innerHTML'});
+      htmx.ajax('GET', '/' + qs, {target: '#email-table', swap: 'morph:innerHTML'});
+    }
+
+    // --- Filters ---
+    function setFilter(key, value) {
       var params = new URLSearchParams(window.location.search);
-      htmx.ajax('GET', '/?' + params.toString(), {target: '#email-table', swap: 'morph:innerHTML'});
+      if (value) params.set(key, value); else params.delete(key);
+      params.delete('page');
+      var qs = params.toString();
+      history.replaceState(null, '', qs ? '/?' + qs : '/');
+      refreshContent();
+    }
+    var searchTimer = null;
+    function onSearchInput(value) {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() { setFilter('q', value.trim()); }, 300);
     }
 
     function connectSSE() {
@@ -191,62 +176,15 @@
 {{end}}
 
 {{define "stats_cards"}}
-<div class="card p-3 sm:p-4 flex items-center gap-3">
-  <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/50">
-    <svg class="h-4 w-4 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25a2.25 2.25 0 012.25-2.25h15a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-15A2.25 2.25 0 012.25 17.25v-9z" />
-      <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5l7.22 5.415a2.25 2.25 0 002.56 0L20 7.5" />
-      <path stroke-linecap="round" stroke-linejoin="round" d="M12 3.75v4.5m0 0L9.5 5.75M12 8.25l2.5-2.5" />
-    </svg>
-  </div>
-  <div class="min-w-0">
-    <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 leading-none">Total</p>
-    <p class="mt-1 text-lg sm:text-xl font-semibold tabular-nums tracking-tight dark:text-zinc-100 leading-none">{{.Total}}</p>
-  </div>
-</div>
-<div class="card p-3 sm:p-4 flex items-center gap-3">
-  <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950">
-    <svg class="h-4 w-4 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-  </div>
-  <div class="min-w-0">
-    <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 leading-none">Delivered</p>
-    <p class="mt-1 text-lg sm:text-xl font-semibold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400 leading-none">{{.Delivered}}</p>
-  </div>
-</div>
-<div class="card p-3 sm:p-4 flex items-center gap-3">
-  <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950">
-    <svg class="h-4 w-4 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
-  </div>
-  <div class="min-w-0">
-    <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 leading-none">Dropped</p>
-    <p class="mt-1 text-lg sm:text-xl font-semibold tabular-nums tracking-tight text-amber-600 dark:text-amber-400 leading-none">{{.Dropped}}</p>
-  </div>
-</div>
-<div class="card p-3 sm:p-4 flex items-center gap-3">
-  <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 dark:bg-red-950">
-    <svg class="h-4 w-4 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-  </div>
-  <div class="min-w-0">
-    <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 leading-none">Failed</p>
-    <p class="mt-1 text-lg sm:text-xl font-semibold tabular-nums tracking-tight text-red-600 dark:text-red-400 leading-none">{{.Failed}}</p>
-  </div>
-</div>
-<div class="card p-3 sm:p-4 flex items-center gap-3">
-  <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 dark:bg-orange-950">
-    <svg class="h-4 w-4 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-  </div>
-  <div class="min-w-0">
-    <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 leading-none">Partial</p>
-    <p class="mt-1 text-lg sm:text-xl font-semibold tabular-nums tracking-tight text-orange-600 dark:text-orange-400 leading-none">{{.PartialFailure}}</p>
-  </div>
-</div>
-<div class="card p-3 sm:p-4 flex items-center gap-3">
-  <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rose-50 dark:bg-rose-950">
-    <svg class="h-4 w-4 text-rose-600 dark:text-rose-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-  </div>
-  <div class="min-w-0">
-    <p class="text-[11px] font-medium text-muted-foreground dark:text-zinc-500 leading-none">Rejected</p>
-    <p class="mt-1 text-lg sm:text-xl font-semibold tabular-nums tracking-tight text-rose-600 dark:text-rose-400 leading-none">{{.Rejected}}</p>
-  </div>
+{{$st := .Status}}
+<div class="inline-flex items-center rounded-lg bg-black/[0.04] dark:bg-white/[0.05] p-0.5 gap-0.5 whitespace-nowrap" role="tablist" aria-label="Filter by status">
+  {{range (statusFilters .Stats)}}
+  <button type="button" role="tab" aria-selected="{{if eq .Key $st}}true{{else}}false{{end}}" onclick="setFilter('status', '{{.Key}}')"
+    class="inline-flex items-center gap-1.5 rounded-md px-3 h-8 text-[13px] transition-colors {{if eq .Key $st}}nav-tab-active font-medium{{else}}text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200{{end}}">
+    {{if .Dot}}<span class="h-1.5 w-1.5 rounded-full {{.Dot}}"></span>{{end}}
+    {{.Label}}
+    <span class="tabular-nums text-xs {{if eq .Key $st}}text-zinc-500 dark:text-zinc-400{{else}}text-zinc-400 dark:text-zinc-500{{end}}">{{.Count}}</span>
+  </button>
+  {{end}}
 </div>
 {{end}}

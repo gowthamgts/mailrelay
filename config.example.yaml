@@ -1,6 +1,10 @@
-# Every value below can be overridden with a MAILRELAY_ environment variable.
+# A production-leaning example: auth checks are enforced and recipients are
+# restricted. The built-in defaults are more permissive (auth checks "log",
+# any recipient accepted), which is handier for trying things out.
+#
+# Every scalar value can be overridden with a MAILRELAY_ environment variable.
 # Use __ (double underscore) for nesting: MAILRELAY_SMTP__ADDR -> smtp.addr
-# See README.md for the full env-var reference.
+# Lists (allowed_recipients, providers, allowed_email_domains) must be set here.
 
 log_level: info # MAILRELAY_LOG_LEVEL
 
@@ -28,7 +32,7 @@ http:
     cookie_same_site: "lax" # MAILRELAY_HTTP__AUTH__COOKIE_SAME_SITE (lax, strict, none)
     session_ttl: 12h # MAILRELAY_HTTP__AUTH__SESSION_TTL
     session_secret: "" # MAILRELAY_HTTP__AUTH__SESSION_SECRET (optional, stable secret for sharing sessions across instances)
-    allowed_email_domains: [] # MAILRELAY_HTTP__AUTH__ALLOWED_EMAIL_DOMAINS (empty = any authenticated email)
+    allowed_email_domains: [] # empty = any authenticated email
     # providers:
     #   - name: "google"
     #     issuer_url: "https://accounts.google.com"
@@ -42,6 +46,14 @@ retry:
   max_wait: 30s # MAILRELAY_RETRY__MAX_WAIT
   timeout: 30s # MAILRELAY_RETRY__TIMEOUT (per-request HTTP timeout; 0 = no timeout; can be overridden per-webhook)
   retry_on_timeout: true # MAILRELAY_RETRY__RETRY_ON_TIMEOUT (retry timed-out requests; can be overridden per-webhook)
+
+webhook:
+  # Let webhooks (and the rule editor's Test button) reach loopback, private
+  # (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (incl. 169.254.169.254
+  # cloud metadata) and CGNAT/Tailscale (100.64/10) addresses. Off by default so
+  # a rule can't be used to probe your internal network. Turn it on if your
+  # webhooks point at services on your LAN, in Docker or on localhost.
+  allow_private_networks: false # MAILRELAY_WEBHOOK__ALLOW_PRIVATE_NETWORKS
 
 webui:
   enabled: false # MAILRELAY_WEBUI__ENABLED (Docker default: true)

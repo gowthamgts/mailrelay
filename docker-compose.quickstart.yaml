@@ -1,0 +1,31 @@
+# Try mailrelay locally in a couple of minutes. See "Quick start" in README.md.
+#
+#   docker compose -f docker-compose.quickstart.yaml up -d
+#
+# - Web UI:  http://localhost:2623
+# - SMTP:    localhost:2525
+# - echo:    a webhook target that replies with the request it received, so you
+#            can see exactly what mailrelay sent. Use http://echo:8080/ as the
+#            webhook URL when creating a rule.
+#
+# Everything is bound to 127.0.0.1. For a real deployment, start from
+# docker-compose.example.yaml instead.
+
+services:
+  mailrelay:
+    image: ghcr.io/gowthamgts/mailrelay:latest
+    ports:
+      - "127.0.0.1:2525:25"
+      - "127.0.0.1:2623:2623"
+    environment:
+      - MAILRELAY_SMTP__DOMAIN=localhost
+      # The echo container has a private Docker IP, which webhooks can't reach by default.
+      - MAILRELAY_WEBHOOK__ALLOW_PRIVATE_NETWORKS=true
+    volumes:
+      - mailrelay_data:/data
+
+  echo:
+    image: mendhak/http-https-echo:42
+
+volumes:
+  mailrelay_data:

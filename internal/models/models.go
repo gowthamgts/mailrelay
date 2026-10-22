@@ -284,6 +284,13 @@ func (r *RuleRecord) ToRule() Rule {
 	}
 }
 
+// WebhookPolicy holds settings that apply to every outgoing webhook request.
+type WebhookPolicy struct {
+	// AllowPrivateNetworks lets webhooks (and the UI's Test button) reach
+	// loopback, private, link-local and other internal addresses.
+	AllowPrivateNetworks bool `json:"allow_private_networks" koanf:"allow_private_networks"`
+}
+
 // RetryConfig controls exponential backoff for webhook delivery.
 type RetryConfig struct {
 	MaxRetries     int           `json:"max_retries" koanf:"max_retries"`
@@ -382,10 +389,11 @@ type HTTPConfig struct {
 
 // AppConfig is the top-level configuration.
 type AppConfig struct {
-	LogLevel string      `json:"log_level" koanf:"log_level"`
-	SMTP     SMTPConfig  `json:"smtp" koanf:"smtp"`
-	Auth     AuthConfig  `json:"auth" koanf:"auth"`
-	HTTP     HTTPConfig  `json:"http" koanf:"http"`
-	Retry    RetryConfig `json:"retry" koanf:"retry"`
-	WebUI    WebUIConfig `json:"webui" koanf:"webui"`
+	LogLevel string        `json:"log_level" koanf:"log_level"`
+	SMTP     SMTPConfig    `json:"smtp" koanf:"smtp"`
+	Auth     AuthConfig    `json:"auth" koanf:"auth"`
+	HTTP     HTTPConfig    `json:"http" koanf:"http"`
+	Retry    RetryConfig   `json:"retry" koanf:"retry"`
+	Webhook  WebhookPolicy `json:"webhook" koanf:"webhook"`
+	WebUI    WebUIConfig   `json:"webui" koanf:"webui"`
 }

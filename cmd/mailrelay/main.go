@@ -28,11 +28,22 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var version = "dev"
+// Set at build time via -ldflags (see .goreleaser.yaml).
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("mailrelay %s (commit %s, built %s)\n", version, commit, date)
+		return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -46,6 +57,7 @@ func main() {
 	defer stop()
 
 	slog.Info("mailrelay starting",
+		"version", version,
 		"config", *configPath,
 		"smtp_addr", cfg.SMTP.Addr,
 		"webui", cfg.WebUI.Enabled,
@@ -58,8 +70,19 @@ func main() {
 		slog.Warn("smtp.allowed_recipients is empty and SMTP is listening on a non-localhost address; the server may behave as an open relay. Configure smtp.allowed_recipients for production use.")
 	}
 
+	// Warn if the web UI is reachable from other hosts without authentication.
+	if cfg.WebUI.Enabled && !cfg.HTTP.Auth.Enabled &&
+		!strings.HasPrefix(cfg.HTTP.Addr, "127.0.0.1:") &&
+		!strings.HasPrefix(cfg.HTTP.Addr, "localhost:") {
+		slog.Warn("the web UI is listening on a non-localhost address without authentication; anyone who can reach it can read emails and edit rules. Publish the port on 127.0.0.1 only, put it behind a reverse proxy with auth, or enable http.auth.")
+	}
+
 	engine := rules.NewEngine()
 	dispatcher := webhook.NewDispatcher(cfg.Retry, version)
+	dispatcher.SetAllowPrivateNetworks(cfg.Webhook.AllowPrivateNetworks)
+	if cfg.Webhook.AllowPrivateNetworks {
+		slog.Info("webhooks may reach private and internal addresses (webhook.allow_private_networks)")
+	}
 
 	var store *storage.Store
 	var uiHandler *webui.Handler
@@ -170,7 +193,7 @@ func main() {
 	}
 
 	// CSRF protection for state-changing requests to the web UI and APIs.
-	rootHandler = csrfMiddleware(rootHandler, cfg.HTTP)
+	rootHandler = csrfMiddleware(rootHandler)
 
 	httpSrv := &http.Server{
 		Addr:    cfg.HTTP.Addr,
@@ -409,16 +432,15 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 		// CSP is kept intentionally permissive to avoid breaking the existing UI
 		// while still constraining script/style origins.
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'")
+			"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
 
 // csrfMiddleware enforces CSRF protection on unsafe HTTP methods for the web UI.
-func csrfMiddleware(next http.Handler, httpCfg models.HTTPConfig) http.Handler {
-	secure := !strings.HasPrefix(httpCfg.Addr, "127.0.0.1:") && !strings.HasPrefix(httpCfg.Addr, "localhost:")
-
+func csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		secure := httpcsrf.IsSecure(r)
 		switch r.Method {
 		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 			// Exempt auth endpoints from CSRF checks; they already employ OAuth state.
@@ -440,7 +462,6 @@ func csrfMiddleware(next http.Handler, httpCfg models.HTTPConfig) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
 
 // applySettings merges saved settings into the running config.
 // Only hot-reloadable fields are applied.
