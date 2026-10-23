@@ -9,7 +9,6 @@
 <p align="center">
   <a href="https://github.com/gowthamgts/mailrelay/actions/workflows/ci.yml"><img src="https://github.com/gowthamgts/mailrelay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://codecov.io/gh/gowthamgts/mailrelay"><img src="https://codecov.io/gh/gowthamgts/mailrelay/graph/badge.svg" alt="Coverage"></a>
-  <a href="https://goreportcard.com/report/github.com/gowthamgts/mailrelay"><img src="https://goreportcard.com/badge/github.com/gowthamgts/mailrelay" alt="Go Report Card"></a>
   <a href="https://pkg.go.dev/github.com/gowthamgts/mailrelay"><img src="https://pkg.go.dev/badge/github.com/gowthamgts/mailrelay.svg" alt="Go Reference"></a>
 </p>
 
