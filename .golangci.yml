@@ -1,0 +1,22 @@
+version: "2"
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      # Writes to an HTTP response only fail once the client has gone away.
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # Test setup ignores errors from writing fixtures and closing resources.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt

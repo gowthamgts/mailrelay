@@ -284,7 +284,9 @@ func buildHandler(engine *rules.Engine, dispatcher *webhook.Dispatcher, store *s
 		if len(matched) == 0 {
 			slog.Info("no rules matched", "from", email.EnvelopeFrom, "subject", email.Subject)
 			if store != nil {
-				store.UpdateEmailStatus(ctx, emailID, models.EmailStatusDropped)
+				if err := store.UpdateEmailStatus(ctx, emailID, models.EmailStatusDropped); err != nil {
+					slog.Error("failed to update email status", "id", emailID, "error", err)
+				}
 			}
 			if events != nil {
 				events.Notify()
@@ -317,7 +319,9 @@ func buildHandler(engine *rules.Engine, dispatcher *webhook.Dispatcher, store *s
 			}
 
 			newStatus := webui.ComputeStatus(results)
-			store.UpdateEmailStatus(ctx, emailID, newStatus)
+			if err := store.UpdateEmailStatus(ctx, emailID, newStatus); err != nil {
+				slog.Error("failed to update email status", "id", emailID, "error", err)
+			}
 		}
 
 		if events != nil {

@@ -107,13 +107,18 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
-	// Add rejection_reason column to existing databases.
-	db.Exec(`ALTER TABLE emails ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''`)
-	// Add response_body column to existing databases.
-	db.Exec(`ALTER TABLE deliveries ADD COLUMN response_body TEXT NOT NULL DEFAULT ''`)
-	// Add header From/To columns to distinguish from envelope addresses.
-	db.Exec(`ALTER TABLE emails ADD COLUMN header_from TEXT NOT NULL DEFAULT ''`)
-	db.Exec(`ALTER TABLE emails ADD COLUMN header_to TEXT NOT NULL DEFAULT '[]'`)
+	// Columns added after the first release; new databases already have them.
+	for _, stmt := range []string{
+		`ALTER TABLE emails ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE deliveries ADD COLUMN response_body TEXT NOT NULL DEFAULT ''`,
+		// Header From/To, to distinguish them from envelope addresses.
+		`ALTER TABLE emails ADD COLUMN header_from TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE emails ADD COLUMN header_to TEXT NOT NULL DEFAULT '[]'`,
+	} {
+		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -483,8 +488,13 @@ func scanRule(row *sql.Row) (*models.RuleRecord, error) {
 	}
 
 	r.Enabled = enabled != 0
-	json.Unmarshal([]byte(matchJSON), &r.Match)
-	json.Unmarshal([]byte(webhookJSON), &r.Webhook)
+	// A rule whose matcher fails to decode would match every email, so fail instead.
+	if err := json.Unmarshal([]byte(matchJSON), &r.Match); err != nil {
+		return nil, fmt.Errorf("decoding match for rule %q: %w", r.Name, err)
+	}
+	if err := json.Unmarshal([]byte(webhookJSON), &r.Webhook); err != nil {
+		return nil, fmt.Errorf("decoding webhook for rule %q: %w", r.Name, err)
+	}
 	return &r, nil
 }
 
@@ -500,8 +510,13 @@ func scanRuleRow(rows *sql.Rows) (*models.RuleRecord, error) {
 	}
 
 	r.Enabled = enabled != 0
-	json.Unmarshal([]byte(matchJSON), &r.Match)
-	json.Unmarshal([]byte(webhookJSON), &r.Webhook)
+	// A rule whose matcher fails to decode would match every email, so fail instead.
+	if err := json.Unmarshal([]byte(matchJSON), &r.Match); err != nil {
+		return nil, fmt.Errorf("decoding match for rule %q: %w", r.Name, err)
+	}
+	if err := json.Unmarshal([]byte(webhookJSON), &r.Webhook); err != nil {
+		return nil, fmt.Errorf("decoding webhook for rule %q: %w", r.Name, err)
+	}
 	return &r, nil
 }
 
@@ -518,8 +533,9 @@ func (s *Store) Close() error {
 
 func populateEmailRecord(rec *models.EmailRecord, envelopeTo, headerTo, parsedEmail, status string, authResult sql.NullString) {
 	rec.Status = models.EmailStatus(status)
-	json.Unmarshal([]byte(envelopeTo), &rec.EnvelopeTo)
-	json.Unmarshal([]byte(headerTo), &rec.HeaderTo)
+	// Address lists are display-only; a corrupt one shows up as empty.
+	_ = json.Unmarshal([]byte(envelopeTo), &rec.EnvelopeTo)
+	_ = json.Unmarshal([]byte(headerTo), &rec.HeaderTo)
 
 	var pe models.ParsedEmail
 	if err := json.Unmarshal([]byte(parsedEmail), &pe); err == nil {

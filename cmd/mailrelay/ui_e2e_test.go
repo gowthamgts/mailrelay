@@ -180,16 +180,33 @@ func newPage(t *testing.T, browser playwright.Browser) playwright.Page {
 	return page
 }
 
-// waitForSelector waits up to 5 seconds for a CSS selector to appear.
-func waitForSelector(t *testing.T, page playwright.Page, selector string) playwright.ElementHandle {
+// waitForSelector waits up to 5 seconds for a selector to appear and returns
+// a locator for its first match.
+func waitForSelector(t *testing.T, page playwright.Page, selector string) playwright.Locator {
 	t.Helper()
-	el, err := page.WaitForSelector(selector, playwright.PageWaitForSelectorOptions{
-		Timeout: playwright.Float(5000),
-	})
-	if err != nil {
+	el := page.Locator(selector).First()
+	if err := el.WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(5000)}); err != nil {
 		t.Fatalf("wait for %q: %v", selector, err)
 	}
 	return el
+}
+
+// waitForDetached waits for a selector to be removed from the page.
+func waitForDetached(page playwright.Page, selector string, timeout float64) error {
+	return page.Locator(selector).WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateDetached,
+		Timeout: playwright.Float(timeout),
+	})
+}
+
+// countRows returns the number of rows in the email table.
+func countRows(t *testing.T, page playwright.Page) int {
+	t.Helper()
+	n, err := page.Locator("table tbody tr").Count()
+	if err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	return n
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -210,12 +227,8 @@ func TestUI_EmailListLoads(t *testing.T) {
 
 	waitForSelector(t, page, "table tbody tr")
 
-	rows, err := page.QuerySelectorAll("table tbody tr")
-	if err != nil {
-		t.Fatalf("query rows: %v", err)
-	}
-	if len(rows) < 2 {
-		t.Errorf("expected ≥2 email rows, got %d", len(rows))
+	if n := countRows(t, page); n < 2 {
+		t.Errorf("expected ≥2 email rows, got %d", n)
 	}
 }
 
@@ -244,11 +257,7 @@ func TestUI_EmailDetailModalOpens(t *testing.T) {
 	waitForSelector(t, page, "#modal-panel")
 
 	// Subject should be visible inside the modal.
-	modal, err := page.QuerySelector("#modal-panel")
-	if err != nil || modal == nil {
-		t.Fatal("modal panel not found")
-	}
-	content, err := modal.InnerText()
+	content, err := page.Locator("#modal-panel").InnerText()
 	if err != nil {
 		t.Fatalf("modal inner text: %v", err)
 	}
@@ -273,45 +282,30 @@ func TestUI_DeleteSingleEmail(t *testing.T) {
 	}
 
 	// Count rows before.
-	waitForSelector(t, page, "table tbody tr")
-	beforeRows, err := page.QuerySelectorAll("table tbody tr")
-	if err != nil {
-		t.Fatalf("before rows: %v", err)
-	}
-	before := len(beforeRows)
+	firstRow := waitForSelector(t, page, "table tbody tr")
+	before := countRows(t, page)
 
 	// Open the first email's detail modal.
-	if err := beforeRows[0].Click(); err != nil {
+	if err := firstRow.Click(); err != nil {
 		t.Fatalf("click row: %v", err)
 	}
 	waitForSelector(t, page, "#modal-panel")
 
 	// Click the Delete button inside the modal.
 	// The button has hx-delete and hx-confirm — the dialog listener will accept.
-	deleteBtn, err := page.QuerySelector("#modal-panel button[hx-delete]")
-	if err != nil || deleteBtn == nil {
-		t.Fatal("delete button not found in modal")
-	}
-	if err := deleteBtn.Click(); err != nil {
+	if err := page.Locator("#modal-panel button[hx-delete]").Click(); err != nil {
 		t.Fatalf("click delete: %v", err)
 	}
 
 	// Wait for modal to close (emailDeleted event fires → closeModal()).
-	if _, err := page.WaitForSelector("#modal-panel", playwright.PageWaitForSelectorOptions{
-		State:   playwright.WaitForSelectorStateDetached,
-		Timeout: playwright.Float(5000),
-	}); err != nil {
+	if err := waitForDetached(page, "#modal-panel", 5000); err != nil {
 		t.Fatalf("modal did not close: %v", err)
 	}
 
 	// Wait for list to refresh.
 	time.Sleep(500 * time.Millisecond)
 
-	afterRows, err := page.QuerySelectorAll("table tbody tr")
-	if err != nil {
-		t.Fatalf("after rows: %v", err)
-	}
-	after := len(afterRows)
+	after := countRows(t, page)
 	if after != before-1 {
 		t.Errorf("expected %d rows after delete, got %d", before-1, after)
 	}
@@ -345,16 +339,12 @@ func TestUI_DeleteAllEmails(t *testing.T) {
 	waitForSelector(t, page, "table tbody tr")
 
 	// Find and click the "Clear All" button (hx-post="/emails/delete-all").
-	clearBtn, err := page.QuerySelector("button[hx-post='/emails/delete-all']")
-	if err != nil || clearBtn == nil {
-		t.Fatal("clear all button not found")
-	}
-	if err := clearBtn.Click(); err != nil {
+	if err := page.Locator("button[hx-post='/emails/delete-all']").Click(); err != nil {
 		t.Fatalf("click clear all: %v", err)
 	}
 
 	// Wait for the empty-state message to appear.
-	if _, err := page.WaitForSelector("text=No emails found", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator("text=No emails found").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(5000),
 	}); err != nil {
 		t.Fatalf("empty state not shown after delete-all: %v", err)
@@ -387,14 +377,10 @@ func TestUI_StatsCardsUpdateAfterDelete(t *testing.T) {
 	waitForSelector(t, page, "#stats-cards")
 
 	// Delete all.
-	clearBtn, err := page.QuerySelector("button[hx-post='/emails/delete-all']")
-	if err != nil || clearBtn == nil {
-		t.Fatal("clear all button not found")
-	}
-	if err := clearBtn.Click(); err != nil {
+	if err := page.Locator("button[hx-post='/emails/delete-all']").Click(); err != nil {
 		t.Fatalf("click clear all: %v", err)
 	}
-	if _, err := page.WaitForSelector("text=No emails found", playwright.PageWaitForSelectorOptions{
+	if err := page.Locator("text=No emails found").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(5000),
 	}); err != nil {
 		t.Fatalf("empty state not shown: %v", err)
@@ -445,11 +431,7 @@ func TestUI_CreateRule(t *testing.T) {
 	}
 
 	// Open the create-rule modal via "Create Rule" button (onclick="openFormModal()").
-	newBtn, err := page.QuerySelector("button[onclick='openFormModal()']")
-	if err != nil || newBtn == nil {
-		t.Skip("create-rule button not found; skipping create test")
-	}
-	if err := newBtn.Click(); err != nil {
+	if err := page.Locator("button[onclick='openFormModal()']").First().Click(); err != nil {
 		t.Fatalf("click create rule: %v", err)
 	}
 
@@ -458,20 +440,20 @@ func TestUI_CreateRule(t *testing.T) {
 
 	ruleName := fmt.Sprintf("E2E Rule %d", time.Now().UnixMilli())
 
-	if err := page.Fill("#name", ruleName); err != nil {
+	if err := page.Locator("#name").Fill(ruleName); err != nil {
 		t.Fatalf("fill name: %v", err)
 	}
-	if err := page.Fill("#webhook_url", "https://example.com/webhook"); err != nil {
+	if err := page.Locator("#webhook_url").Fill("https://example.com/webhook"); err != nil {
 		t.Fatalf("fill webhook url: %v", err)
 	}
 
 	// Submit the form via the submit button.
-	if err := page.Click("#form-submit-btn"); err != nil {
+	if err := page.Locator("#form-submit-btn").Click(); err != nil {
 		t.Fatalf("click submit: %v", err)
 	}
 
 	// After server redirect (303) back to /rules, the rule should appear.
-	if _, err := page.WaitForSelector(fmt.Sprintf("[data-rule-name='%s']", ruleName), playwright.PageWaitForSelectorOptions{
+	if err := page.Locator(fmt.Sprintf("[data-rule-name='%s']", ruleName)).WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(5000),
 	}); err != nil {
 		t.Fatalf("created rule not visible: %v", err)
@@ -498,7 +480,7 @@ func TestUI_DeleteRule(t *testing.T) {
 
 	// Click the delete button on the rule card (dialog auto-accepted by newPage).
 	deleteBtn := fmt.Sprintf("[data-rule-name='%s'] button[hx-delete]", ruleName)
-	if err := page.Click(deleteBtn); err != nil {
+	if err := page.Locator(deleteBtn).Click(); err != nil {
 		t.Fatalf("click delete rule: %v", err)
 	}
 
@@ -535,7 +517,7 @@ func TestUI_SearchFiltersEmails(t *testing.T) {
 	waitForSelector(t, page, "table tbody tr")
 
 	// Type "Invoice" into the search field.
-	if err := page.Fill("input[name='q']", "Invoice"); err != nil {
+	if err := page.Locator("input[name='q']").Fill("Invoice"); err != nil {
 		t.Fatalf("fill search: %v", err)
 	}
 
@@ -543,12 +525,8 @@ func TestUI_SearchFiltersEmails(t *testing.T) {
 	time.Sleep(600 * time.Millisecond)
 	waitForSelector(t, page, "table tbody tr")
 
-	rows, err := page.QuerySelectorAll("table tbody tr")
-	if err != nil {
-		t.Fatalf("query rows: %v", err)
-	}
-	if len(rows) != 2 {
-		t.Errorf("expected 2 invoice rows, got %d", len(rows))
+	if n := countRows(t, page); n != 2 {
+		t.Errorf("expected 2 invoice rows, got %d", n)
 	}
 }
 
@@ -576,10 +554,7 @@ func TestUI_ModalClosesOnEscape(t *testing.T) {
 		t.Fatalf("press escape: %v", err)
 	}
 
-	if _, err := page.WaitForSelector("#modal-panel", playwright.PageWaitForSelectorOptions{
-		State:   playwright.WaitForSelectorStateDetached,
-		Timeout: playwright.Float(3000),
-	}); err != nil {
+	if err := waitForDetached(page, "#modal-panel", 3000); err != nil {
 		t.Fatalf("modal did not close on Escape: %v", err)
 	}
 }
@@ -601,19 +576,15 @@ func TestUI_StatusFilterWorks(t *testing.T) {
 	waitForSelector(t, page, "table tbody tr")
 
 	// Click the "Failed" tab in the status filter bar.
-	if err := page.Click("#stats-cards button:has-text('Failed')"); err != nil {
+	if err := page.Locator("#stats-cards button:has-text('Failed')").Click(); err != nil {
 		t.Fatalf("click status filter: %v", err)
 	}
 
 	time.Sleep(500 * time.Millisecond)
 	waitForSelector(t, page, "table tbody tr")
 
-	rows, err := page.QuerySelectorAll("table tbody tr")
-	if err != nil {
-		t.Fatalf("query rows: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Errorf("expected 1 failed row, got %d", len(rows))
+	if n := countRows(t, page); n != 1 {
+		t.Errorf("expected 1 failed row, got %d", n)
 	}
 }
 
