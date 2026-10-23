@@ -5,16 +5,30 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: playwright-${{ runner.os }}-
+      # The runner image already ships the shared libraries chrome-headless-shell
+      # needs; --with-deps only added fonts and xvfb via apt, which can take
+      # 10+ minutes on a slow mirror.
       - name: Install Playwright browser
-        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps --only-shell chromium
+        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --only-shell chromium
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out -coverpkg=./... ./...
       - name: Upload coverage
@@ -25,6 +39,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
