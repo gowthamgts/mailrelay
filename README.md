@@ -7,6 +7,13 @@
 <p align="center">Turn incoming email into webhooks. A small, self-hosted SMTP server that checks each email against your rules and sends the matches to your webhooks, with a web UI to see what arrived and how each webhook responded.</p>
 
 <p align="center">
+  <a href="https://github.com/gowthamgts/mailrelay/actions/workflows/ci.yml"><img src="https://github.com/gowthamgts/mailrelay/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/gowthamgts/mailrelay"><img src="https://codecov.io/gh/gowthamgts/mailrelay/graph/badge.svg" alt="Coverage"></a>
+  <a href="https://goreportcard.com/report/github.com/gowthamgts/mailrelay"><img src="https://goreportcard.com/badge/github.com/gowthamgts/mailrelay" alt="Go Report Card"></a>
+  <a href="https://pkg.go.dev/github.com/gowthamgts/mailrelay"><img src="https://pkg.go.dev/badge/github.com/gowthamgts/mailrelay.svg" alt="Go Reference"></a>
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dashboard-dark.png">
     <img src="docs/screenshots/dashboard-light.png" alt="mailrelay dashboard showing received emails and their delivery status">

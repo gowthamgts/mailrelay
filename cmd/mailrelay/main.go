@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -36,24 +37,38 @@ var (
 )
 
 func main() {
-	configPath := flag.String("config", "config.yaml", "path to config file")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		stop()
+		os.Exit(1)
+	}
+}
+
+// run starts mailrelay and blocks until ctx is cancelled or the SMTP server fails.
+func run(ctx context.Context, args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("mailrelay", flag.ContinueOnError)
+	configPath := flags.String("config", "config.yaml", "path to config file")
+	showVersion := flags.Bool("version", false, "print version and exit")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
 
 	if *showVersion {
-		fmt.Printf("mailrelay %s (commit %s, built %s)\n", version, commit, date)
-		return
+		fmt.Fprintf(stdout, "mailrelay %s (commit %s, built %s)\n", version, commit, date)
+		return nil
 	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	logLevel := setupLogger(cfg.LogLevel)
+	logLevel := setupLogger(cfg.LogLevel, stdout)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 
 	slog.Info("mailrelay starting",
@@ -90,8 +105,7 @@ func main() {
 	if cfg.WebUI.Enabled {
 		store, err = storage.Open(cfg.WebUI.DBPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to open database: %w", err)
 		}
 		defer store.Close()
 		slog.Info("web UI enabled", "db", cfg.WebUI.DBPath, "retention_days", cfg.WebUI.RetentionDays)
@@ -108,8 +122,7 @@ func main() {
 
 		uiHandler, err = webui.NewHandler(store, engine, dispatcher, cfg.WebUI.RawEmailDir, cfg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to initialize web UI: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to initialize web UI: %w", err)
 		}
 
 		if err := uiHandler.LoadRules(ctx); err != nil {
@@ -150,8 +163,7 @@ func main() {
 	if cfg.HTTP.Auth.Enabled {
 		mgr, err := httpauth.NewManager(cfg.HTTP.Auth, cfg.HTTP)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to initialize HTTP auth: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to initialize HTTP auth: %w", err)
 		}
 		authManager = mgr
 
@@ -235,6 +247,7 @@ func main() {
 		slog.Error("HTTP server shutdown error", "error", err)
 	}
 	slog.Info("mailrelay stopped")
+	return nil
 }
 
 func buildHandler(engine *rules.Engine, dispatcher *webhook.Dispatcher, store *storage.Store, events *webui.EventBus, rawEmailDir string) smtpserver.EmailHandler {
@@ -368,44 +381,48 @@ func runCleanup(ctx context.Context, store *storage.Store, retentionDays *atomic
 	for {
 		select {
 		case <-ticker.C:
-			days := int(retentionDays.Load())
-			if days <= 0 {
-				continue
-			}
-
-			var expiredIDs []string
-			if rawEmailDir != "" {
-				ids, err := store.GetExpiredEmailIDs(ctx, days)
-				if err != nil {
-					slog.Error("failed to get expired email IDs", "error", err)
-				} else {
-					expiredIDs = ids
-				}
-			}
-
-			deleted, err := store.Cleanup(ctx, days)
-			if err != nil {
-				slog.Error("cleanup failed", "error", err)
-			} else if deleted > 0 {
-				slog.Info("cleaned up old emails", "deleted", deleted)
-			}
-
-			for _, id := range expiredIDs {
-				emlPath := filepath.Join(rawEmailDir, id+".eml")
-				if err := os.Remove(emlPath); err != nil && !os.IsNotExist(err) {
-					slog.Error("failed to remove raw email file", "path", emlPath, "error", err)
-				}
-			}
+			cleanupOnce(ctx, store, int(retentionDays.Load()), rawEmailDir)
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func setupLogger(level string) *slog.LevelVar {
+// cleanupOnce deletes emails older than days, along with their raw .eml files.
+func cleanupOnce(ctx context.Context, store *storage.Store, days int, rawEmailDir string) {
+	if days <= 0 {
+		return
+	}
+
+	var expiredIDs []string
+	if rawEmailDir != "" {
+		ids, err := store.GetExpiredEmailIDs(ctx, days)
+		if err != nil {
+			slog.Error("failed to get expired email IDs", "error", err)
+		} else {
+			expiredIDs = ids
+		}
+	}
+
+	deleted, err := store.Cleanup(ctx, days)
+	if err != nil {
+		slog.Error("cleanup failed", "error", err)
+	} else if deleted > 0 {
+		slog.Info("cleaned up old emails", "deleted", deleted)
+	}
+
+	for _, id := range expiredIDs {
+		emlPath := filepath.Join(rawEmailDir, id+".eml")
+		if err := os.Remove(emlPath); err != nil && !os.IsNotExist(err) {
+			slog.Error("failed to remove raw email file", "path", emlPath, "error", err)
+		}
+	}
+}
+
+func setupLogger(level string, out io.Writer) *slog.LevelVar {
 	lv := &slog.LevelVar{}
 	setLogLevel(lv, level)
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lv})
+	handler := slog.NewJSONHandler(out, &slog.HandlerOptions{Level: lv})
 	slog.SetDefault(slog.New(handler))
 	return lv
 }

@@ -967,8 +967,8 @@ func (h *Handler) handleRuleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	rule, errMsg := parseRuleForm(r)
 	if errMsg != "" {
-		rule.ID = id
-		h.renderRulesWithError(w, r, errMsg, rule, true)
+		// parseRuleForm returns no rule on error; reopen the edit modal with the stored one.
+		h.renderRulesWithError(w, r, errMsg, existing, true)
 		return
 	}
 
