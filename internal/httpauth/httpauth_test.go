@@ -327,6 +327,7 @@ func TestLoginRejections(t *testing.T) {
 		}, want: http.StatusUnauthorized},
 		{name: "nonce mismatch", claims: func(c map[string]any) { c["nonce"] = "other" }, want: http.StatusUnauthorized},
 		{name: "no id_token", setup: func(fp *fakeProvider) { fp.noIDTok = true }, want: http.StatusUnauthorized},
+		{name: "malformed claims", claims: func(c map[string]any) { c["email"] = 42 }, want: http.StatusUnauthorized},
 		{name: "bad code", code: "bad-code", want: http.StatusUnauthorized},
 		{name: "state mismatch", state: func(loginStart) string { return "forged" }, want: http.StatusBadRequest},
 		{name: "missing state cookie", noState: true, want: http.StatusBadRequest},
@@ -623,6 +624,7 @@ func TestSafeRedirect(t *testing.T) {
 		"/ok\r\nSet-Cookie: x=1": "/",
 		"/auth/callback?code=1":  "/",
 		"/auth/login":            "/",
+		"/bad%zzescape":          "/",
 		"/authors":               "/authors",
 	}
 	for in, want := range tests {
