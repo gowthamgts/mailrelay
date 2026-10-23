@@ -182,9 +182,9 @@ type WebUIConfig struct {
 
 // MatchCondition is a single condition in a rule's matcher.
 type MatchCondition struct {
-	Field   string `json:"field"`              // "from", "to", "cc", "mail_from", "rcpt_to", "subject", "header", "body"
-	Pattern string `json:"pattern"`            // glob or /regex/
-	Header  string `json:"header,omitempty"`   // header name, only used when Field is "header"
+	Field   string `json:"field"`            // "from", "to", "cc", "mail_from", "rcpt_to", "subject", "header", "body"
+	Pattern string `json:"pattern"`          // glob or /regex/
+	Header  string `json:"header,omitempty"` // header name, only used when Field is "header"
 }
 
 // MatcherConfig defines the matching criteria for a rule.
@@ -209,10 +209,10 @@ type WebhookConfig struct {
 	Headers         map[string]string `json:"headers,omitempty"`
 	PayloadTemplate string            `json:"payload_template,omitempty"`
 	// Per-webhook overrides (nil = use global default).
-	Timeout        *int  `json:"timeout,omitempty"`         // seconds
+	Timeout        *int  `json:"timeout,omitempty"` // seconds
 	MaxRetries     *int  `json:"max_retries,omitempty"`
-	InitialWait    *int  `json:"initial_wait,omitempty"`    // seconds
-	MaxWait        *int  `json:"max_wait,omitempty"`        // seconds
+	InitialWait    *int  `json:"initial_wait,omitempty"` // seconds
+	MaxWait        *int  `json:"max_wait,omitempty"`     // seconds
 	RetryOnTimeout *bool `json:"retry_on_timeout,omitempty"`
 }
 
@@ -382,8 +382,8 @@ type HTTPAuthConfig struct {
 
 // HTTPConfig defines the HTTP server (serves health checks, metrics, and the web UI).
 type HTTPConfig struct {
-	Addr          string         `json:"addr" koanf:"addr"`
-	Auth          HTTPAuthConfig `json:"auth" koanf:"auth"`
+	Addr           string         `json:"addr" koanf:"addr"`
+	Auth           HTTPAuthConfig `json:"auth" koanf:"auth"`
 	ProtectMetrics bool           `json:"protect_metrics,omitempty" koanf:"protect_metrics"`
 }
 

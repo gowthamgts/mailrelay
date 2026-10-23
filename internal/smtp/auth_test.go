@@ -15,11 +15,11 @@ func TestArcIntParam(t *testing.T) {
 		{"i=1; a=rsa-sha256; cv=none", "i", 1},
 		{"a=rsa-sha256; i=3; cv=pass", "i", 3},
 		{"cv=pass; i=2", "i", 2},
-		{"cv=pass", "i", 0},          // missing key
-		{"i=abc; cv=pass", "i", 0},   // non-integer value
-		{"i=; cv=pass", "i", 0},      // empty value
-		{"xi=5; cv=pass", "i", 0},    // prefix boundary: "xi=" should not match "i="
-		{"I=5; cv=pass", "i", 5},     // case-insensitive
+		{"cv=pass", "i", 0},        // missing key
+		{"i=abc; cv=pass", "i", 0}, // non-integer value
+		{"i=; cv=pass", "i", 0},    // empty value
+		{"xi=5; cv=pass", "i", 0},  // prefix boundary: "xi=" should not match "i="
+		{"I=5; cv=pass", "i", 5},   // case-insensitive
 	}
 
 	for _, tt := range tests {
@@ -39,9 +39,9 @@ func TestArcStringParam(t *testing.T) {
 		{"i=1; a=rsa-sha256; cv=none", "cv", "none"},
 		{"cv=pass; i=2", "cv", "pass"},
 		{"i=1; cv=fail", "cv", "fail"},
-		{"i=1; a=rsa-sha256", "cv", ""},  // missing key
-		{"CV=PASS; i=1", "cv", "pass"},   // case-insensitive
-		{"cv=; i=1", "cv", ""},           // empty value
+		{"i=1; a=rsa-sha256", "cv", ""}, // missing key
+		{"CV=PASS; i=1", "cv", "pass"},  // case-insensitive
+		{"cv=; i=1", "cv", ""},          // empty value
 	}
 
 	for _, tt := range tests {

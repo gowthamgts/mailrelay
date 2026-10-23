@@ -265,7 +265,7 @@ func (s *Store) GetDeliveriesForEmail(ctx context.Context, emailID string) ([]mo
 		}
 		deliveries = append(deliveries, d)
 	}
-	return deliveries, nil
+	return deliveries, rows.Err()
 }
 
 func (s *Store) Stats(ctx context.Context) (*Stats, error) {
@@ -297,7 +297,7 @@ func (s *Store) Stats(ctx context.Context) (*Stats, error) {
 			st.Rejected = count
 		}
 	}
-	return st, nil
+	return st, rows.Err()
 }
 
 func (s *Store) DeleteEmail(ctx context.Context, id string) error {
@@ -328,7 +328,7 @@ func (s *Store) AllEmailIDs(ctx context.Context) ([]string, error) {
 		}
 		ids = append(ids, id)
 	}
-	return ids, nil
+	return ids, rows.Err()
 }
 
 func (s *Store) GetExpiredEmailIDs(ctx context.Context, retentionDays int) ([]string, error) {
@@ -351,7 +351,7 @@ func (s *Store) GetExpiredEmailIDs(ctx context.Context, retentionDays int) ([]st
 		}
 		ids = append(ids, id)
 	}
-	return ids, nil
+	return ids, rows.Err()
 }
 
 func (s *Store) Cleanup(ctx context.Context, retentionDays int) (int64, error) {
@@ -514,10 +514,6 @@ func boolToInt(b bool) int {
 
 func (s *Store) Close() error {
 	return s.db.Close()
-}
-
-type scanner interface {
-	Scan(dest ...any) error
 }
 
 func populateEmailRecord(rec *models.EmailRecord, envelopeTo, headerTo, parsedEmail, status string, authResult sql.NullString) {

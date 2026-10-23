@@ -163,7 +163,7 @@ func TestE2E_BasicDelivery(t *testing.T) {
 	h := newTestHarness(t, smtpCfg(t))
 	h.engine.SetRules([]models.Rule{
 		{
-			Name:    "from-example",
+			Name: "from-example",
 			Match: models.MatcherConfig{Conditions: []models.MatchCondition{
 				{Field: "from_domain", Pattern: "example.com"},
 			}},

@@ -91,10 +91,10 @@ func defaults() *models.AppConfig {
 		HTTP: models.HTTPConfig{
 			Addr: "127.0.0.1:2623",
 			Auth: models.HTTPAuthConfig{
-				Enabled:            false,
-				CookieName:         "mailrelay_session",
-				CookieSameSite:     "lax",
-				SessionTTL:         12 * time.Hour,
+				Enabled:             false,
+				CookieName:          "mailrelay_session",
+				CookieSameSite:      "lax",
+				SessionTTL:          12 * time.Hour,
 				AllowedEmailDomains: nil,
 			},
 			ProtectMetrics: false,

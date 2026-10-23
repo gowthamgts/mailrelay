@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gowthamgts/mailrelay/internal/models"
 	"github.com/gorilla/sessions"
+	"github.com/gowthamgts/mailrelay/internal/models"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 	"golang.org/x/oauth2/google"
@@ -372,4 +372,3 @@ func originalURLOrDefault(u string) string {
 	}
 	return u
 }
-
