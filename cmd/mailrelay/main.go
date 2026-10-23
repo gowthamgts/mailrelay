@@ -161,7 +161,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	var authManager *httpauth.Manager
 	if cfg.HTTP.Auth.Enabled {
-		mgr, err := httpauth.NewManager(cfg.HTTP.Auth, cfg.HTTP)
+		discoveryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		mgr, err := httpauth.NewManager(discoveryCtx, cfg.HTTP.Auth, cfg.HTTP)
+		cancel()
 		if err != nil {
 			return fmt.Errorf("failed to initialize HTTP auth: %w", err)
 		}

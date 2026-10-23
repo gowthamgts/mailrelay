@@ -338,9 +338,10 @@ type AuthConfig struct {
 // HTTPAuthProviderConfig represents a single OIDC/OAuth2 provider used to
 // authenticate access to the HTTP server and web UI.
 type HTTPAuthProviderConfig struct {
-	// Name is a short identifier for the provider (eg. "google", "github").
+	// Name is a short identifier for the provider (eg. "google", "okta").
 	Name string `json:"name" koanf:"name"`
-	// IssuerURL is the OIDC issuer URL (eg. https://accounts.google.com).
+	// IssuerURL is the OIDC issuer URL (eg. https://accounts.google.com),
+	// used for discovery. It defaults to Google's when Name is "google".
 	IssuerURL string `json:"issuer_url" koanf:"issuer_url"`
 	// ClientID is the OAuth2 client ID registered with the provider.
 	ClientID string `json:"client_id" koanf:"client_id"`
@@ -378,6 +379,10 @@ type HTTPAuthConfig struct {
 	// SessionSecret optionally overrides the random per-process session key
 	// with a stable secret, allowing multiple instances to share sessions.
 	SessionSecret string `json:"session_secret,omitempty" koanf:"session_secret"`
+	// RedirectURL optionally pins the OIDC callback URL (eg.
+	// https://mail.example.com/auth/callback). When empty it is derived from
+	// the request host, using http for localhost and https otherwise.
+	RedirectURL string `json:"redirect_url,omitempty" koanf:"redirect_url"`
 }
 
 // HTTPConfig defines the HTTP server (serves health checks, metrics, and the web UI).

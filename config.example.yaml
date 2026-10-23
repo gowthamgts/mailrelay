@@ -29,16 +29,21 @@ http:
   auth:
     enabled: false # MAILRELAY_HTTP__AUTH__ENABLED (set to true only when at least one provider is configured below)
     cookie_name: "mailrelay_session" # MAILRELAY_HTTP__AUTH__COOKIE_NAME
-    cookie_same_site: "lax" # MAILRELAY_HTTP__AUTH__COOKIE_SAME_SITE (lax, strict, none)
+    cookie_samesite: "lax" # MAILRELAY_HTTP__AUTH__COOKIE_SAMESITE (lax, strict, none)
+    # cookie_secure: true # MAILRELAY_HTTP__AUTH__COOKIE_SECURE (default: false on localhost, true otherwise)
     session_ttl: 12h # MAILRELAY_HTTP__AUTH__SESSION_TTL
-    session_secret: "" # MAILRELAY_HTTP__AUTH__SESSION_SECRET (optional, stable secret for sharing sessions across instances)
-    allowed_email_domains: [] # empty = any authenticated email
+    session_secret: "" # MAILRELAY_HTTP__AUTH__SESSION_SECRET (optional, stable secret so sessions survive restarts and work across instances)
+    redirect_url: "" # MAILRELAY_HTTP__AUTH__REDIRECT_URL (optional, eg. https://mail.example.com/auth/callback; default: derived from the request host)
+    allowed_email_domains: [] # empty = any account at the provider; when set, the email must also be verified
+    # Any OpenID Connect provider works (Google, Okta, Auth0, Keycloak, Authentik, ...).
+    # Endpoints are discovered from issuer_url. GitHub is not supported (it is not OIDC).
+    # Register <your-url>/auth/callback as the redirect URI with the provider.
     # providers:
     #   - name: "google"
-    #     issuer_url: "https://accounts.google.com"
+    #     issuer_url: "https://accounts.google.com" # optional for name "google"
     #     client_id: "your-client-id"
     #     client_secret: "your-client-secret"
-    #     scopes: [] # optional extra scopes
+    #     scopes: [] # optional extra scopes ("openid email profile" are always requested)
 
 retry:
   max_retries: 3 # MAILRELAY_RETRY__MAX_RETRIES
