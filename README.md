@@ -155,6 +155,8 @@ Settings are layered: built-in defaults, then an optional config file (YAML, JSO
 
 Retry, auth mode, log level and retention can also be changed at runtime on the **Settings** page.
 
+**Web UI login.** Set `http.auth.enabled: true` and add an OpenID Connect provider (Google, Okta, Auth0, Keycloak, Authentik, ...) under `http.auth.providers` with its `issuer_url`, `client_id` and `client_secret`; endpoints are discovered from the issuer. Register `https://<your-host>/auth/callback` as the redirect URI (or pin it with `http.auth.redirect_url` behind a proxy). ID tokens are verified (signature, issuer, audience, expiry, nonce). `allowed_email_domains` limits access to verified emails on those domains; leave it empty and any account at the provider can sign in. Set `session_secret` so sessions survive restarts. GitHub login is not supported, since GitHub does not speak OIDC.
+
 **Forwarded mail.** When a provider such as Gmail or Fastmail forwards to mailrelay, the envelope addresses differ from the headers. The UI shows the original header From/To and lists the envelope separately, and rules can match either one. ARC is verified so the original SPF/DKIM results survive forwarding.
 
 ## Operations

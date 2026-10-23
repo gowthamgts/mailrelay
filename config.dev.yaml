@@ -18,8 +18,9 @@ http:
   auth:
     enabled: false # set to true only when at least one provider is configured below
     cookie_name: "mailrelay_session"
-    cookie_same_site: "lax"
+    cookie_samesite: "lax"
     session_ttl: 12h
+    redirect_url: "" # default: http://localhost:2623/auth/callback when browsing on localhost
     allowed_email_domains: []
     # providers:
     #   - name: "google"

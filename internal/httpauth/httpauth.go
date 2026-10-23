@@ -5,18 +5,19 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/gob"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gorilla/sessions"
 	"github.com/gowthamgts/mailrelay/internal/models"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/github"
-	"golang.org/x/oauth2/google"
 )
 
 // contextKey is a private type for request context keys.
@@ -24,7 +25,18 @@ type contextKey string
 
 const userContextKey contextKey = "httpauth_user"
 
-const stateCookieName = "mailrelay_auth_state"
+const (
+	stateCookieName = "mailrelay_auth_state"
+	stateMaxAge     = 10 * 60 // seconds
+	callbackPath    = "/auth/callback"
+	googleIssuer    = "https://accounts.google.com"
+)
+
+func init() {
+	// Sessions are gob-encoded into the cookie; *User is stored as an
+	// interface value and must be registered.
+	gob.Register(&User{})
+}
 
 // User represents the authenticated HTTP user.
 type User struct {
@@ -34,49 +46,63 @@ type User struct {
 	Provider string
 }
 
-// Manager wires together OAuth2/OIDC providers, session storage, and middleware.
+// Manager wires together the OIDC provider, session storage, and middleware.
 type Manager struct {
-	cfg      models.HTTPAuthConfig
-	httpCfg  models.HTTPConfig
-	store    *sessions.CookieStore
-	provider *oauth2.Config
+	cfg          models.HTTPAuthConfig
+	httpCfg      models.HTTPConfig
+	store        *sessions.CookieStore
+	providerName string
+	oauth        oauth2.Config
+	verifier     *oidc.IDTokenVerifier
 }
 
 // NewManager constructs a Manager from the app config. When auth is disabled,
-// it returns nil without error.
-func NewManager(cfg models.HTTPAuthConfig, httpCfg models.HTTPConfig) (*Manager, error) {
+// it returns nil without error. It performs OIDC discovery against the
+// provider's issuer URL, so ctx bounds that network call.
+func NewManager(ctx context.Context, cfg models.HTTPAuthConfig, httpCfg models.HTTPConfig) (*Manager, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
 
 	if len(cfg.Providers) == 0 {
-		return nil, errors.New("http_auth.enabled is true but no providers are configured")
+		return nil, errors.New("http.auth.enabled is true but no providers are configured")
 	}
 
 	// For now, use the first provider as the default.
 	p := cfg.Providers[0]
 	if p.ClientID == "" || p.ClientSecret == "" {
-		return nil, errors.New("http_auth provider requires client_id and client_secret")
+		return nil, errors.New("http.auth provider requires client_id and client_secret")
 	}
 
-	redirectURL := "" // filled in at runtime based on incoming request host
+	issuer := strings.TrimSpace(p.IssuerURL)
+	if issuer == "" {
+		switch strings.ToLower(p.Name) {
+		case "google":
+			issuer = googleIssuer
+		case "github":
+			return nil, errors.New("http.auth provider \"github\" is not supported: GitHub does not implement OpenID Connect; use an OIDC provider (Google, Okta, Auth0, Keycloak, Authentik, ...)")
+		default:
+			return nil, fmt.Errorf("http.auth provider %q requires issuer_url", p.Name)
+		}
+	}
 
-	oauthCfg := &oauth2.Config{
+	if cfg.RedirectURL != "" {
+		u, err := url.Parse(cfg.RedirectURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return nil, fmt.Errorf("http.auth.redirect_url %q must be an absolute http(s) URL", cfg.RedirectURL)
+		}
+	}
+
+	provider, err := oidc.NewProvider(ctx, issuer)
+	if err != nil {
+		return nil, fmt.Errorf("oidc discovery for %s: %w", issuer, err)
+	}
+
+	oauthCfg := oauth2.Config{
 		ClientID:     p.ClientID,
 		ClientSecret: p.ClientSecret,
-		RedirectURL:  redirectURL,
-		Scopes:       []string{"openid", "email", "profile"},
-	}
-
-	// Provider-specific endpoints.
-	switch strings.ToLower(p.Name) {
-	case "google":
-		oauthCfg.Endpoint = google.Endpoint
-	case "github":
-		oauthCfg.Endpoint = github.Endpoint
-	default:
-		// Fallback to Google endpoints if no known provider name is given.
-		oauthCfg.Endpoint = google.Endpoint
+		Endpoint:     provider.Endpoint(),
+		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
 	}
 
 	// Merge additional scopes, avoiding duplicates.
@@ -86,11 +112,12 @@ func NewManager(cfg models.HTTPAuthConfig, httpCfg models.HTTPConfig) (*Manager,
 	}
 	for _, s := range p.Scopes {
 		if _, ok := scopeSet[s]; !ok {
+			scopeSet[s] = struct{}{}
 			oauthCfg.Scopes = append(oauthCfg.Scopes, s)
 		}
 	}
 
-	// Generate a random key for cookie signing if not provided via env; this
+	// Generate a random key for cookie signing if not provided; this
 	// keeps the implementation simple while still protecting against tampering.
 	var key []byte
 	if cfg.SessionSecret != "" {
@@ -108,23 +135,26 @@ func NewManager(cfg models.HTTPAuthConfig, httpCfg models.HTTPConfig) (*Manager,
 		Path:     "/",
 		MaxAge:   int(cfg.SessionTTL.Seconds()),
 		HttpOnly: true,
+		Secure:   shouldUseSecureCookie(cfg, httpCfg),
 		SameSite: sameSiteFromConfig(cfg.CookieSameSite),
 	}
-
-	secure := shouldUseSecureCookie(cfg, httpCfg)
-	store.Options.Secure = secure
 	if cfg.CookieDomain != "" {
 		store.Options.Domain = cfg.CookieDomain
 	}
 
-	m := &Manager{
-		cfg:      cfg,
-		httpCfg:  httpCfg,
-		store:    store,
-		provider: oauthCfg,
+	name := p.Name
+	if name == "" {
+		name = issuer
 	}
 
-	return m, nil
+	return &Manager{
+		cfg:          cfg,
+		httpCfg:      httpCfg,
+		store:        store,
+		providerName: name,
+		oauth:        oauthCfg,
+		verifier:     provider.Verifier(&oidc.Config{ClientID: p.ClientID}),
+	}, nil
 }
 
 func sameSiteFromConfig(v string) http.SameSite {
@@ -143,10 +173,22 @@ func shouldUseSecureCookie(cfg models.HTTPAuthConfig, httpCfg models.HTTPConfig)
 		return *cfg.CookieSecure
 	}
 	// Default: secure for non-localhost bindings.
-	if strings.HasPrefix(httpCfg.Addr, "127.0.0.1:") || strings.HasPrefix(httpCfg.Addr, "localhost:") {
-		return false
+	return !isLoopbackHost(httpCfg.Addr)
+}
+
+// isLoopbackHost reports whether hostport (with or without a port) names
+// localhost or a loopback IP.
+func isLoopbackHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
 	}
-	return true
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // WithUser returns the request with the authenticated user attached to context.
@@ -176,13 +218,17 @@ func (m *Manager) AuthMiddleware(next http.Handler, allow func(*http.Request) bo
 		session, _ := m.store.Get(r, m.sessionCookieName())
 		if session != nil {
 			if v, ok := session.Values["user"].(*User); ok && v != nil {
-				r = WithUser(r, v)
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, WithUser(r, v))
 				return
 			}
 		}
 
-		m.startLogin(w, r)
+		// Only page navigations go back to the original URL after login.
+		dest := "/"
+		if r.Method == http.MethodGet {
+			dest = r.URL.RequestURI()
+		}
+		m.startLogin(w, r, dest)
 	})
 }
 
@@ -193,119 +239,178 @@ func (m *Manager) sessionCookieName() string {
 	return "mailrelay_session"
 }
 
-// startLogin begins the OAuth2 authorization code flow.
-func (m *Manager) startLogin(w http.ResponseWriter, r *http.Request) {
-	state, err := randomState()
+// oauthConfig returns a per-request copy of the OAuth2 config with the
+// redirect URL filled in, so concurrent requests never share mutable state.
+func (m *Manager) oauthConfig(r *http.Request) *oauth2.Config {
+	c := m.oauth
+	c.RedirectURL = m.callbackURL(r)
+	return &c
+}
+
+func (m *Manager) callbackURL(r *http.Request) string {
+	if m.cfg.RedirectURL != "" {
+		return m.cfg.RedirectURL
+	}
+	scheme := "https"
+	if r.TLS == nil && isLoopbackHost(r.Host) {
+		scheme = "http"
+	}
+	return scheme + "://" + r.Host + callbackPath
+}
+
+// stateCookieSameSite picks the SameSite mode for the short-lived state
+// cookie. It must be sent on the provider's cross-site redirect back to the
+// callback, so "strict" is downgraded to "lax".
+func (m *Manager) stateCookieSameSite() http.SameSite {
+	if s := sameSiteFromConfig(m.cfg.CookieSameSite); s == http.SameSiteNoneMode {
+		return s
+	}
+	return http.SameSiteLaxMode
+}
+
+// startLogin begins the OIDC authorization code flow. State, nonce and the
+// post-login redirect are kept in a signed, short-lived cookie.
+func (m *Manager) startLogin(w http.ResponseWriter, r *http.Request, next string) {
+	state, err := randomString()
 	if err != nil {
 		slog.Error("failed to generate auth state", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	nonce, err := randomString()
+	if err != nil {
+		slog.Error("failed to generate auth nonce", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
-	// Persist state and original URL in a short-lived, HTTP-only cookie.
-	redirectTo := r.URL.String()
-	http.SetCookie(w, &http.Cookie{
-		Name:     stateCookieName,
-		Value:    url.QueryEscape(state + "|" + redirectTo),
-		Path:     "/",
-		Expires:  time.Now().Add(10 * time.Minute),
-		HttpOnly: true,
-		Secure:   shouldUseSecureCookie(m.cfg, m.httpCfg),
-		SameSite: http.SameSiteLaxMode,
-	})
+	sess, _ := m.store.New(r, stateCookieName)
+	sess.Options.MaxAge = stateMaxAge
+	sess.Options.SameSite = m.stateCookieSameSite()
+	sess.Values["state"] = state
+	sess.Values["nonce"] = nonce
+	sess.Values["next"] = safeRedirect(next)
+	if err := sess.Save(r, w); err != nil {
+		slog.Error("failed to save auth state", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
-	authURL := m.provider.AuthCodeURL(state, oauth2.AccessTypeOnline)
+	authURL := m.oauthConfig(r).AuthCodeURL(state, oidc.Nonce(nonce))
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
-// LoginHandler is a public endpoint that explicitly triggers login.
-func (m *Manager) LoginHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.startLogin(w, r)
+// clearStateCookie expires the state cookie.
+func (m *Manager) clearStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     stateCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   m.store.Options.Secure,
+		SameSite: m.stateCookieSameSite(),
 	})
 }
 
-// CallbackHandler completes the OAuth2 authorization code flow.
+// LoginHandler is a public endpoint that explicitly triggers login. An
+// optional local "next" query parameter sets where to go afterwards.
+func (m *Manager) LoginHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.startLogin(w, r, r.URL.Query().Get("next"))
+	})
+}
+
+// CallbackHandler completes the OIDC authorization code flow: it checks the
+// state, exchanges the code, verifies the ID token and starts a session.
 func (m *Manager) CallbackHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		state := r.URL.Query().Get("state")
-		code := r.URL.Query().Get("code")
+		q := r.URL.Query()
+		if e := q.Get("error"); e != "" {
+			slog.Warn("oidc provider returned an error", "error", e, "description", q.Get("error_description"))
+			m.clearStateCookie(w)
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
+			return
+		}
+
+		state := q.Get("state")
+		code := q.Get("code")
 		if state == "" || code == "" {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
 
-		stateCookie, err := r.Cookie(stateCookieName)
-		if err != nil || stateCookie.Value == "" {
+		stateSess, err := m.store.Get(r, stateCookieName)
+		if err != nil || stateSess.IsNew {
 			http.Error(w, "Invalid state", http.StatusBadRequest)
 			return
 		}
-
-		val, err := url.QueryUnescape(stateCookie.Value)
-		if err != nil {
+		wantState, _ := stateSess.Values["state"].(string)
+		nonce, _ := stateSess.Values["nonce"].(string)
+		next, _ := stateSess.Values["next"].(string)
+		if wantState == "" || wantState != state || nonce == "" {
 			http.Error(w, "Invalid state", http.StatusBadRequest)
 			return
 		}
-
-		parts := strings.SplitN(val, "|", 2)
-		if len(parts) != 2 || parts[0] != state {
-			http.Error(w, "Invalid state", http.StatusBadRequest)
-			return
-		}
-		originalURL := parts[1]
-
-		// Clear the state cookie.
-		http.SetCookie(w, &http.Cookie{
-			Name:     stateCookieName,
-			Value:    "",
-			Path:     "/",
-			Expires:  time.Unix(0, 0),
-			MaxAge:   -1,
-			HttpOnly: true,
-		})
-
-		// Temporarily set redirect URL based on current request host.
-		m.provider.RedirectURL = callbackURLFromRequest(r)
+		// The state is single-use.
+		m.clearStateCookie(w)
 
 		ctx := r.Context()
-		token, err := m.provider.Exchange(ctx, code)
+		token, err := m.oauthConfig(r).Exchange(ctx, code)
 		if err != nil {
 			slog.Error("oauth2 exchange failed", "error", err)
 			http.Error(w, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
 
-		// For simplicity, we only extract the email from the ID token / token response
-		// via standard claims. In a fuller implementation we would parse ID tokens
-		// explicitly and/or call the provider userinfo endpoint.
 		rawIDToken, _ := token.Extra("id_token").(string)
 		if rawIDToken == "" {
-			// We still consider this a successful login, but without email we cannot
-			// enforce domain restrictions, so we reject the login.
-			http.Error(w, "Authentication failed (no id_token)", http.StatusUnauthorized)
+			slog.Error("oidc token response has no id_token")
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
 
-		email := ""
-		name := ""
-		subject := rawIDToken
+		idToken, err := m.verifier.Verify(ctx, rawIDToken)
+		if err != nil {
+			slog.Warn("id token verification failed", "error", err)
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
+			return
+		}
+		if idToken.Nonce != nonce {
+			slog.Warn("id token nonce mismatch")
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
+			return
+		}
+
+		var claims struct {
+			Email         string `json:"email"`
+			EmailVerified *bool  `json:"email_verified"`
+			Name          string `json:"name"`
+		}
+		if err := idToken.Claims(&claims); err != nil {
+			slog.Warn("failed to parse id token claims", "error", err)
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
+			return
+		}
+
+		if len(m.cfg.AllowedEmailDomains) > 0 {
+			verified := claims.EmailVerified != nil && *claims.EmailVerified
+			if !verified || !emailAllowed(claims.Email, m.cfg.AllowedEmailDomains) {
+				slog.Warn("login denied", "email", claims.Email, "email_verified", verified)
+				http.Error(w, "Access denied", http.StatusForbidden)
+				return
+			}
+		}
 
 		user := &User{
-			Subject:  subject,
-			Email:    email,
-			Name:     name,
-			Provider: m.cfg.Providers[0].Name,
+			Subject:  idToken.Subject,
+			Email:    claims.Email,
+			Name:     claims.Name,
+			Provider: m.providerName,
 		}
 
-		if len(m.cfg.AllowedEmailDomains) > 0 && !emailAllowed(email, m.cfg.AllowedEmailDomains) {
-			http.Error(w, "Access denied", http.StatusForbidden)
-			return
-		}
-
-		session, _ := m.store.Get(r, m.sessionCookieName())
-		if session == nil {
-			session, _ = m.store.New(r, m.sessionCookieName())
-		}
+		// Always start a fresh session on login.
+		session, _ := m.store.New(r, m.sessionCookieName())
 		session.Values["user"] = user
 		if err := session.Save(r, w); err != nil {
 			slog.Error("failed to save session", "error", err)
@@ -313,7 +418,8 @@ func (m *Manager) CallbackHandler() http.Handler {
 			return
 		}
 
-		http.Redirect(w, r, originalURLOrDefault(originalURL), http.StatusSeeOther)
+		slog.Info("user logged in", "email", user.Email, "subject", user.Subject, "provider", user.Provider)
+		http.Redirect(w, r, safeRedirect(next), http.StatusSeeOther)
 	})
 }
 
@@ -322,6 +428,7 @@ func (m *Manager) LogoutHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, _ := m.store.Get(r, m.sessionCookieName())
 		if session != nil {
+			session.Values = map[any]any{}
 			session.Options.MaxAge = -1
 			_ = session.Save(r, w)
 		}
@@ -329,7 +436,7 @@ func (m *Manager) LogoutHandler() http.Handler {
 	})
 }
 
-func randomState() (string, error) {
+func randomString() (string, error) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
@@ -339,14 +446,11 @@ func randomState() (string, error) {
 
 func emailAllowed(email string, allowedDomains []string) bool {
 	email = strings.ToLower(strings.TrimSpace(email))
-	if email == "" {
+	at := strings.LastIndex(email, "@")
+	if at <= 0 || at == len(email)-1 {
 		return false
 	}
-	parts := strings.SplitN(email, "@", 2)
-	if len(parts) != 2 {
-		return false
-	}
-	domain := parts[1]
+	domain := email[at+1:]
 	for _, d := range allowedDomains {
 		if strings.EqualFold(strings.TrimSpace(d), domain) {
 			return true
@@ -355,19 +459,25 @@ func emailAllowed(email string, allowedDomains []string) bool {
 	return false
 }
 
-func callbackURLFromRequest(r *http.Request) string {
-	scheme := "https"
-	if r.TLS == nil && strings.HasPrefix(r.Host, "localhost") {
-		scheme = "http"
-	}
-	return scheme + "://" + r.Host + "/auth/callback"
-}
-
-func originalURLOrDefault(u string) string {
-	if u == "" {
+// safeRedirect returns u if it is a same-origin path, otherwise "/". It
+// rejects absolute URLs and protocol-relative forms like "//host" and "/\host"
+// that browsers treat as off-site.
+func safeRedirect(u string) string {
+	if u == "" || u[0] != '/' {
 		return "/"
 	}
-	if !strings.HasPrefix(u, "/") {
+	if len(u) > 1 && (u[1] == '/' || u[1] == '\\') {
+		return "/"
+	}
+	if strings.ContainsAny(u, "\r\n\t") {
+		return "/"
+	}
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Scheme != "" || parsed.Host != "" {
+		return "/"
+	}
+	// Never bounce back into the auth endpoints after logging in.
+	if strings.HasPrefix(parsed.Path, "/auth/") {
 		return "/"
 	}
 	return u
