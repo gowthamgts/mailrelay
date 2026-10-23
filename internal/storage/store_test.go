@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -775,5 +776,37 @@ func TestNullString(t *testing.T) {
 	}
 	if ns.String != "hello" {
 		t.Errorf("String = %q, want hello", ns.String)
+	}
+}
+
+func TestReopenExistingDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mailrelay.db")
+	for i := range 2 {
+		s, err := Open(path)
+		if err != nil {
+			t.Fatalf("Open() #%d error: %v", i+1, err)
+		}
+		s.Close()
+	}
+}
+
+func TestCorruptRuleMatchIsAnError(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	rule := &models.RuleRecord{Name: "corrupt", Enabled: true, Webhook: models.WebhookConfig{URL: "https://example.com"}}
+	if err := s.SaveRule(ctx, rule); err != nil {
+		t.Fatalf("SaveRule() error: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE rules SET match_config = 'not json' WHERE id = ?`, rule.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// An undecodable matcher would match every email, so it must not load.
+	if _, err := s.GetRule(ctx, rule.ID); err == nil {
+		t.Error("GetRule() returned no error for corrupt match config")
+	}
+	if _, err := s.ListEnabledRules(ctx); err == nil {
+		t.Error("ListEnabledRules() returned no error for corrupt match config")
 	}
 }

@@ -451,7 +451,9 @@ func (h *Handler) handleReplay(w http.ResponseWriter, r *http.Request) {
 
 	matched := h.engine.Match(email.ParsedEmail)
 	if len(matched) == 0 {
-		h.store.UpdateEmailStatus(r.Context(), id, models.EmailStatusDropped)
+		if err := h.store.UpdateEmailStatus(r.Context(), id, models.EmailStatusDropped); err != nil {
+			slog.Error("failed to update email status", "id", id, "error", err)
+		}
 		w.Header().Set("HX-Trigger", "refreshList")
 		h.handleDetail(w, r)
 		return
@@ -475,7 +477,9 @@ func (h *Handler) handleReplay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newStatus := computeStatus(results)
-	h.store.UpdateEmailStatus(r.Context(), id, newStatus)
+	if err := h.store.UpdateEmailStatus(r.Context(), id, newStatus); err != nil {
+		slog.Error("failed to update email status", "id", id, "error", err)
+	}
 
 	h.Events.Notify()
 	w.Header().Set("HX-Trigger", "refreshList")
