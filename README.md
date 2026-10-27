@@ -72,7 +72,9 @@ docker run -d --name mailrelay \
 
 Add `-e MAILRELAY_WEBHOOK__ALLOW_PRIVATE_NETWORKS=true` if your webhooks point at services on your network. The image keeps everything under `/data` (SQLite database, raw `.eml` files, and an optional `config.yaml`) and enables the web UI.
 
-**Binary.** Download a release from the [releases page](https://github.com/gowthamgts/mailrelay/releases), or build it with `go build ./cmd/mailrelay`. Then run `./mailrelay -config config.yaml`.
+**Binary.** Download a release from the [releases page](https://github.com/gowthamgts/mailrelay/releases), or build it with `go build ./cmd/mailrelay`. Then run `./mailrelay -config config.yaml`. Set `webui.enabled: true`: rules live in the web UI's database, so without it no rule ever matches.
+
+The [self-hosting guide](docs/self-hosting.md) walks through DNS, port 25, systemd, backups and upgrades. See also [reverse proxy and login](docs/reverse-proxy.md), [webhook recipes](docs/webhooks.md) and [troubleshooting](docs/troubleshooting.md).
 
 > [!IMPORTANT]
 > The web UI has no login unless you configure `http.auth` (OIDC). Keep port 2623 on localhost, or put it behind a reverse proxy that handles auth. Also set `smtp.allowed_recipients` so only your addresses are accepted.
@@ -164,7 +166,7 @@ Retry, auth mode, log level and retention can also be changed at runtime on the 
 | Endpoint | |
 | --- | --- |
 | `/healthz` | Liveness probe, returns `ok` |
-| `/metrics` | Prometheus metrics (`mailrelay_*`). See [docs/prometheus.md](docs/prometheus.md) and the [Grafana dashboard](docs/grafana-dashboard.json). |
+| `/metrics` | Prometheus metrics (`mailrelay_*`). Public even with login on, unless `http.protect_metrics: true`. See [docs/prometheus.md](docs/prometheus.md) and the [Grafana dashboard](docs/grafana-dashboard.json). |
 
 `mailrelay -version` prints the build version.
 
