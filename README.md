@@ -74,6 +74,8 @@ Add `-e MAILRELAY_WEBHOOK__ALLOW_PRIVATE_NETWORKS=true` if your webhooks point a
 
 **Binary.** Download a release from the [releases page](https://github.com/gowthamgts/mailrelay/releases), or build it with `go build ./cmd/mailrelay`. Then run `./mailrelay -config config.yaml`. The database is created as `mailrelay.db` in the working directory unless you set `webui.db_path`.
 
+**Fly.io or a fresh VPS.** [`deploy/`](deploy/) has a ready-made `fly.toml` and a cloud-init file you can paste when creating a server. See [deploy platforms](docs/deploy-platforms.md), which also explains why HTTP-only platforms such as Render and Railway can't run mailrelay (they don't accept mail on port 25).
+
 The [self-hosting guide](docs/self-hosting.md) walks through DNS, port 25, systemd, backups and upgrades. See also [reverse proxy and login](docs/reverse-proxy.md), [webhook recipes](docs/webhooks.md) and [troubleshooting](docs/troubleshooting.md).
 
 > [!IMPORTANT]
