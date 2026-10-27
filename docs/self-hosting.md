@@ -67,7 +67,7 @@ Edit `config.yaml`. At minimum set:
 - `smtp.domain` to your hostname
 - `smtp.allowed_recipients` to the addresses you want, such as `"*@alerts.example.com"`. Without it mailrelay accepts mail for any address.
 
-The image sets `http.addr`, `webui.enabled`, `webui.db_path` and `webui.raw_email_dir` through environment variables, and env vars beat the config file. So those four keys in `config.yaml` are ignored in Docker; to change one, set its `MAILRELAY_` variable in the compose file instead. The UI listens on all interfaces inside the container, and the compose file publishes it only on the host's `127.0.0.1`.
+The image sets `http.addr`, `webui.db_path` and `webui.raw_email_dir` through environment variables, and env vars beat the config file. So those three keys in `config.yaml` are ignored in Docker; to change one, set its `MAILRELAY_` variable in the compose file instead. The UI listens on all interfaces inside the container, and the compose file publishes it only on the host's `127.0.0.1`.
 
 Then uncomment the `./config.yaml:/data/config.yaml:ro` volume in `docker-compose.yaml`, and start it:
 
@@ -92,15 +92,15 @@ sudo mkdir -p /etc/mailrelay
 sudo cp config.example.yaml /etc/mailrelay/config.yaml
 ```
 
-> [!IMPORTANT]
-> Outside Docker the web UI is **off by default**, and rules live in the web UI's database. With `webui.enabled: false` mailrelay has no rules, so it accepts mail and drops all of it. Set it in `/etc/mailrelay/config.yaml`:
->
-> ```yaml
-> webui:
->   enabled: true
->   db_path: "/var/lib/mailrelay/mailrelay.db"
->   raw_email_dir: "/var/lib/mailrelay/emails"
-> ```
+By default the database is created as `mailrelay.db` in the working directory. Point it at the data directory in `/etc/mailrelay/config.yaml`:
+
+```yaml
+webui:
+  db_path: "/var/lib/mailrelay/mailrelay.db"
+  raw_email_dir: "/var/lib/mailrelay/emails"
+```
+
+Leave `webui.enabled` on. Rules are stored in the web UI's database, so with it off mailrelay has no rules and drops every email.
 
 Run it with systemd. `AmbientCapabilities` lets the unprivileged user bind port 25:
 

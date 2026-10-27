@@ -102,8 +102,8 @@ func TestRun_Errors(t *testing.T) {
 		"invalid auth mode": "auth:\n  spf: sometimes\n",
 		"webui without db":  "webui:\n  enabled: true\n  db_path: \"\"\n",
 		"bad db path":       fmt.Sprintf("webui:\n  enabled: true\n  db_path: %q\n", filepath.Join(dir, "missing", "dir", "db.sqlite")),
-		"auth without providers": fmt.Sprintf("smtp:\n  addr: %q\nhttp:\n  addr: %q\n  auth:\n    enabled: true\n",
-			freePort(t), freePort(t)),
+		"auth without providers": fmt.Sprintf("smtp:\n  addr: %q\nhttp:\n  addr: %q\n  auth:\n    enabled: true\nwebui:\n  db_path: %q\n",
+			freePort(t), freePort(t), filepath.Join(dir, "db.sqlite")),
 	}
 	for name, cfg := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -63,7 +63,7 @@ webhook:
   allow_private_networks: false # MAILRELAY_WEBHOOK__ALLOW_PRIVATE_NETWORKS
 
 webui:
-  enabled: false # MAILRELAY_WEBUI__ENABLED (Docker default: true)
+  enabled: true # MAILRELAY_WEBUI__ENABLED (rules are stored in the web UI database; with false no rules load and all mail is dropped)
   db_path: "mailrelay.db" # MAILRELAY_WEBUI__DB_PATH (Docker default: /data/mailrelay.db)
   retention_days: 7 # MAILRELAY_WEBUI__RETENTION_DAYS (0 = keep forever)
   raw_email_dir: "" # MAILRELAY_WEBUI__RAW_EMAIL_DIR (Docker default: /data/emails)

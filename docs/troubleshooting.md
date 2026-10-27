@@ -63,7 +63,7 @@ You can change the auth modes on the **Settings** page without restarting.
 
 Once you click Save on the **Settings** page, those values (log level, auth checks, retry and retention) are stored in the database and override the config file and env vars on every start. Change them on the Settings page instead.
 
-In Docker, `http.addr`, `webui.enabled`, `webui.db_path` and `webui.raw_email_dir` are set by the image's env vars, which beat the config file. Set the matching `MAILRELAY_` variable instead.
+In Docker, `http.addr`, `webui.db_path` and `webui.raw_email_dir` are set by the image's env vars, which beat the config file. Set the matching `MAILRELAY_` variable instead.
 
 ## More detail in the logs
 
