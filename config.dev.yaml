@@ -15,6 +15,7 @@ auth:
 
 http:
   addr: "127.0.0.1:2623"
+  protect_metrics: false
   auth:
     enabled: false # set to true only when at least one provider is configured below
     cookie_name: "mailrelay_session"

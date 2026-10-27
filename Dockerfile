@@ -22,7 +22,6 @@ RUN addgroup -S mailrelay && adduser -S mailrelay -G mailrelay \
 
 VOLUME /data
 
-ENV MAILRELAY_WEBUI__ENABLED=true
 ENV MAILRELAY_WEBUI__DB_PATH=/data/mailrelay.db
 ENV MAILRELAY_WEBUI__RAW_EMAIL_DIR=/data/emails
 ENV MAILRELAY_HTTP__ADDR=0.0.0.0:2623

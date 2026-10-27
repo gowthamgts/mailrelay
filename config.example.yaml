@@ -26,11 +26,13 @@ auth: # each check can be "off", "log", or "enforce"
 
 http:
   addr: "127.0.0.1:2623" # MAILRELAY_HTTP__ADDR (HTTP server for health checks, metrics, and web UI)
+  protect_metrics: false # MAILRELAY_HTTP__PROTECT_METRICS (require login for /metrics when auth is enabled; /healthz is always public)
   auth:
     enabled: false # MAILRELAY_HTTP__AUTH__ENABLED (set to true only when at least one provider is configured below)
     cookie_name: "mailrelay_session" # MAILRELAY_HTTP__AUTH__COOKIE_NAME
     cookie_samesite: "lax" # MAILRELAY_HTTP__AUTH__COOKIE_SAMESITE (lax, strict, none)
     # cookie_secure: true # MAILRELAY_HTTP__AUTH__COOKIE_SECURE (default: false on localhost, true otherwise)
+    # cookie_domain: "" # MAILRELAY_HTTP__AUTH__COOKIE_DOMAIN (optional; default: the host the UI is served on)
     session_ttl: 12h # MAILRELAY_HTTP__AUTH__SESSION_TTL
     session_secret: "" # MAILRELAY_HTTP__AUTH__SESSION_SECRET (optional, stable secret so sessions survive restarts and work across instances)
     redirect_url: "" # MAILRELAY_HTTP__AUTH__REDIRECT_URL (optional, eg. https://mail.example.com/auth/callback; default: derived from the request host)
@@ -61,7 +63,7 @@ webhook:
   allow_private_networks: false # MAILRELAY_WEBHOOK__ALLOW_PRIVATE_NETWORKS
 
 webui:
-  enabled: false # MAILRELAY_WEBUI__ENABLED (Docker default: true)
+  enabled: true # MAILRELAY_WEBUI__ENABLED (rules are stored in the web UI database; with false no rules load and all mail is dropped)
   db_path: "mailrelay.db" # MAILRELAY_WEBUI__DB_PATH (Docker default: /data/mailrelay.db)
   retention_days: 7 # MAILRELAY_WEBUI__RETENTION_DAYS (0 = keep forever)
   raw_email_dir: "" # MAILRELAY_WEBUI__RAW_EMAIL_DIR (Docker default: /data/emails)
