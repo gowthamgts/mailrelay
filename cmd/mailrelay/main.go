@@ -85,6 +85,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		slog.Warn("smtp.allowed_recipients is empty and SMTP is listening on a non-localhost address; the server may behave as an open relay. Configure smtp.allowed_recipients for production use.")
 	}
 
+	// Rules are stored in the web UI's database, so without it nothing can match.
+	if !cfg.WebUI.Enabled {
+		slog.Warn("webui.enabled is false, so no rules are loaded and every email will be dropped. Rules live in the web UI's database; enable webui to create them.")
+	}
+
 	// Warn if the web UI is reachable from other hosts without authentication.
 	if cfg.WebUI.Enabled && !cfg.HTTP.Auth.Enabled &&
 		!strings.HasPrefix(cfg.HTTP.Addr, "127.0.0.1:") &&

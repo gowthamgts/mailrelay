@@ -157,6 +157,9 @@ func TestLoadMissingFileUsesDefaults(t *testing.T) {
 	if cfg.SMTP.Addr != "0.0.0.0:25" {
 		t.Errorf("smtp addr = %q, want 0.0.0.0:25", cfg.SMTP.Addr)
 	}
+	if !cfg.WebUI.Enabled {
+		t.Error("webui.enabled = false, want true")
+	}
 }
 
 func TestEnvVarsOverrideFile(t *testing.T) {

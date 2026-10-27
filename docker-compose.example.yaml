@@ -10,7 +10,7 @@ services:
       - "127.0.0.1:2623:2623"
 
     # All persistent state (database, raw emails, optional config) lives in /data.
-    # Image defaults: web UI enabled, db at /data/mailrelay.db, emails in /data/emails.
+    # Image defaults: db at /data/mailrelay.db, emails in /data/emails.
     volumes:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro

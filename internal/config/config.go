@@ -107,7 +107,7 @@ func defaults() *models.AppConfig {
 			RetryOnTimeout: true,
 		},
 		WebUI: models.WebUIConfig{
-			Enabled:       false,
+			Enabled:       true,
 			DBPath:        "mailrelay.db",
 			RetentionDays: 7,
 		},
