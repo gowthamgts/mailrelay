@@ -178,7 +178,10 @@ Retry, auth mode, log level and retention can also be changed at runtime on the 
 just dev        # run with config.dev.yaml (SMTP on :2525, UI on :2623)
 just dev-test   # send a batch of sample emails with swaks
 just test
+just docs       # preview the docs site (README.md + docs/) on :4321
 ```
+
+The docs site at [gowthamgts.github.io/mailrelay](https://gowthamgts.github.io/mailrelay/) is built from `README.md` and `docs/` by the Starlight project in [`site/`](site/), and deployed to GitHub Pages on every push to `main`. Edit the Markdown, not the generated files under `site/src/content/`.
 
 ## License
 
