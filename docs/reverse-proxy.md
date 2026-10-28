@@ -14,7 +14,7 @@ Each example serves the UI at `https://mail.example.com`, with mailrelay listeni
 
 ### Caddy
 
-```caddyfile
+```text
 mail.example.com {
 	reverse_proxy 127.0.0.1:2623
 }

@@ -38,6 +38,14 @@ dev-watch:
 dev-test:
     ./scripts/test-emails.sh
 
+# Preview the docs site (built from README.md and docs/; restart to pick up Markdown edits)
+docs:
+    cd site && npm ci && npm run dev
+
+# Build the docs site into site/dist
+docs-build:
+    cd site && npm ci && npm run build
+
 # Run the built binary
 run *args: build
     ./{{ bin_dir }}/{{ binary }} {{ args }}
