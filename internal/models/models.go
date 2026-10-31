@@ -91,8 +91,9 @@ const (
 	AuthNone AuthCheckResult = "none"
 )
 
-// AuthResult holds the results of SPF, DKIM, DMARC, and ARC verification.
+// AuthResult holds SPF, DKIM, DMARC, and ARC results and SMTP transport security.
 type AuthResult struct {
+	TLS   bool            `json:"tls"` // Whether the inbound SMTP connection used TLS.
 	SPF   AuthCheckResult `json:"spf"`
 	DKIM  AuthCheckResult `json:"dkim"`
 	DMARC AuthCheckResult `json:"dmarc"`
@@ -304,6 +305,9 @@ type RetryConfig struct {
 
 // SMTPConfig defines SMTP server settings.
 type SMTPConfig struct {
+	TLSCert           string        `json:"tls_cert" koanf:"tls_cert"`
+	TLSKey            string        `json:"tls_key" koanf:"tls_key"`
+	RequireTLS        bool          `json:"require_tls" koanf:"require_tls"`
 	Addr              string        `json:"addr" koanf:"addr"`
 	Domain            string        `json:"domain" koanf:"domain"`
 	MaxMessageBytes   int64         `json:"max_message_bytes" koanf:"max_message_bytes"`

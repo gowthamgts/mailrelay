@@ -251,6 +251,27 @@ func containsSubstr(s, sub string) bool {
 	return false
 }
 
+func TestTLSConfigValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		smtp    models.SMTPConfig
+		invalid bool
+	}{
+		{"disabled", models.SMTPConfig{}, false},
+		{"cert only", models.SMTPConfig{TLSCert: "cert.pem"}, true},
+		{"key only", models.SMTPConfig{TLSKey: "key.pem"}, true},
+		{"require without cert", models.SMTPConfig{RequireTLS: true}, true},
+		{"opportunistic", models.SMTPConfig{TLSCert: "cert.pem", TLSKey: "key.pem"}, false},
+		{"required", models.SMTPConfig{TLSCert: "cert.pem", TLSKey: "key.pem", RequireTLS: true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validate(&models.AppConfig{SMTP: tc.smtp, Webhook: models.WebhookPolicy{Workers: 1, ShutdownTimeout: time.Second}}); (err != nil) != tc.invalid {
+				t.Fatalf("validate = %v, invalid = %v", err, tc.invalid)
+			}
+		})
+	}
+}
+
 func TestQueueConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name, workers, timeout string

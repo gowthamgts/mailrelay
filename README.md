@@ -115,7 +115,7 @@ With no template, the webhook receives the whole parsed email:
   "text_body": "…",
   "html_body": "…",
   "attachments": [{ "filename": "a.pdf", "content_type": "application/pdf", "content": "base64…" }],
-  "auth_result": { "spf": "pass", "dkim": "pass", "dmarc": "pass", "arc": "none" },
+  "auth_result": { "spf": "pass", "dkim": "pass", "dmarc": "pass", "arc": "none", "tls": true },
   "envelope_from": "bounce@example.com",
   "envelope_to": ["you@example.com"]
 }
@@ -151,6 +151,8 @@ Settings are layered: built-in defaults, then an optional config file (YAML, JSO
 | Setting | Default |
 | --- | --- |
 | `smtp.addr` | `0.0.0.0:25` |
+| `smtp.tls_cert` / `smtp.tls_key` | empty (set both PEM paths to offer STARTTLS; reloaded on every handshake) |
+| `smtp.require_tls` | `false` (when true, MAIL FROM requires STARTTLS; needs a certificate/key) |
 | `smtp.allowed_recipients` | empty (accept any recipient) |
 | `http.addr` | `127.0.0.1:2623` (`0.0.0.0:2623` in Docker) |
 | `webui.enabled` | `true` (rules are stored in its database, so turning it off drops all mail) |
@@ -163,6 +165,8 @@ Settings are layered: built-in defaults, then an optional config file (YAML, JSO
 Retry, auth mode, log level and retention can also be changed at runtime on the **Settings** page.
 
 **Web UI login.** Set `http.auth.enabled: true` and add an OpenID Connect provider (Google, Okta, Auth0, Keycloak, Authentik, ...) under `http.auth.providers` with its `issuer_url`, `client_id` and `client_secret`; endpoints are discovered from the issuer. Register `https://<your-host>/auth/callback` as the redirect URI (or pin it with `http.auth.redirect_url` behind a proxy). ID tokens are verified (signature, issuer, audience, expiry, nonce). `allowed_email_domains` limits access to verified emails on those domains; leave it empty and any account at the provider can sign in. Set `session_secret` so sessions survive restarts. GitHub login is not supported, since GitHub does not speak OIDC.
+
+**SMTP encryption.** Configure both TLS PEM paths to offer opportunistic STARTTLS (TLS 1.2 or newer). Email details and the webhook’s `auth_result.tls` boolean record whether the inbound connection used TLS. See [certificate setup](docs/self-hosting.md#smtp-starttls) for Let’s Encrypt and renewal instructions.
 
 **Forwarded mail.** When a provider such as Gmail or Fastmail forwards to mailrelay, the envelope addresses differ from the headers. The UI shows the original header From/To and lists the envelope separately, and rules can match either one. ARC is verified so the original SPF/DKIM results survive forwarding.
 

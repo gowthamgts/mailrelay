@@ -10,6 +10,10 @@ log_level: info # MAILRELAY_LOG_LEVEL
 
 smtp:
   addr: "0.0.0.0:25" # MAILRELAY_SMTP__ADDR
+  # Set both PEM paths to advertise STARTTLS (TLS 1.2+); reloaded every handshake.
+  # tls_cert: "/etc/letsencrypt/live/mx.example.com/fullchain.pem"
+  # tls_key: "/etc/letsencrypt/live/mx.example.com/privkey.pem"
+  require_tls: false # reject MAIL FROM before STARTTLS when true; requires both paths
   domain: "mailrelay.example.com" # MAILRELAY_SMTP__DOMAIN
   max_message_bytes: 26214400 # 25MB
   max_recipients: 5

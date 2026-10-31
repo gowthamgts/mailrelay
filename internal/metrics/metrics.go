@@ -9,6 +9,13 @@ const namespace = "mailrelay"
 
 // SMTP metrics.
 var (
+	SMTPSessionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: "smtp",
+		Name:      "sessions_total",
+		Help:      "SMTP sessions begun by transport (STARTTLS begins a new session).",
+	}, []string{"transport"})
+
 	SMTPConnectionsTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Subsystem: "smtp",
