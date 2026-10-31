@@ -3,6 +3,7 @@ package webui
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -31,12 +32,14 @@ type testEnv struct {
 	store  *storage.Store
 	mux    *http.ServeMux
 	rawDir string
+	dbPath string
 }
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	store, err := storage.Open(filepath.Join(dir, "test.db"))
+	dbPath := filepath.Join(dir, "test.db")
+	store, err := storage.Open(dbPath)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -72,7 +75,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 	mux := http.NewServeMux()
 	h.Register(mux)
-	return &testEnv{h: h, store: store, mux: mux, rawDir: rawDir}
+	return &testEnv{h: h, store: store, mux: mux, rawDir: rawDir, dbPath: dbPath}
 }
 
 func (e *testEnv) do(t *testing.T, method, target string, form url.Values, htmx bool) *httptest.ResponseRecorder {
@@ -834,5 +837,32 @@ func TestTemplateFuncs(t *testing.T) {
 	}
 	if got := call("formatTime", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)); got != "Jan 02, 2026 03:04:05 UTC" {
 		t.Errorf("formatTime = %q", got)
+	}
+}
+
+func TestReplayQueueFailure(t *testing.T) {
+	e := newTestEnv(t)
+	id := e.saveEmail(t, "Queue unavailable", models.EmailStatusFailed)
+	e.saveRule(t, "queue failure", "http://127.0.0.1:1")
+	// Fail after the delivery row is inserted to exercise transactional rollback.
+	db, err := sql.Open("sqlite", e.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TRIGGER fail_enqueue BEFORE INSERT ON delivery_queue BEGIN SELECT RAISE(ABORT,'queue unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	response := e.do(t, http.MethodPost, "/emails/"+id+"/replay", nil, true)
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "Failed to enqueue replay") {
+		t.Fatalf("response=%d %s", response.Code, response.Body.String())
+	}
+	rows, err := e.store.GetDeliveriesForEmail(context.Background(), id)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("partial replay committed: %+v,%v", rows, err)
+	}
+	email, err := e.store.GetEmail(context.Background(), id)
+	if err != nil || email.Status != models.EmailStatusFailed {
+		t.Fatalf("failed replay changed email: %+v,%v", email, err)
 	}
 }
