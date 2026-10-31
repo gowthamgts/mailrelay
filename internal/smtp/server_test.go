@@ -16,6 +16,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -247,4 +248,59 @@ func TestTLSMinimumVersion(t *testing.T) {
 		t.Fatal("TLS 1.1 handshake unexpectedly succeeded")
 	}
 	client.Close()
+}
+
+// Callers constructing the SMTP server directly must receive the same TLS
+// validation as callers using the application config loader.
+func TestServerTLSConfigValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		cfg       models.SMTPConfig
+		wantError string
+	}{
+		{"cert without key", models.SMTPConfig{TLSCert: "cert.pem"}, "smtp.tls_cert and smtp.tls_key must be set together"},
+		{"key without cert", models.SMTPConfig{TLSKey: "key.pem"}, "smtp.tls_cert and smtp.tls_key must be set together"},
+		{"required without certificate", models.SMTPConfig{RequireTLS: true}, "smtp.require_tls requires a TLS certificate and key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := NewServer(context.Background(), tc.cfg, models.AuthConfig{}, nil)
+			defer srv.cancel()
+			if err := srv.configureTLS(); err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("configureTLS() = %v, want %q", err, tc.wantError)
+			}
+			if srv.smtp.TLSConfig != nil {
+				t.Fatal("invalid config enabled TLS")
+			}
+		})
+	}
+}
+
+func TestSTARTTLSInvalidRenewalRecovery(t *testing.T) {
+	dir := t.TempDir()
+	cfg := models.SMTPConfig{TLSCert: filepath.Join(dir, "cert.pem"), TLSKey: filepath.Join(dir, "key.pem")}
+	cert := writeTestCertificate(t, cfg.TLSCert, cfg.TLSKey, 1)
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	addr, _ := startTestServer(t, cfg)
+	if err := os.WriteFile(cfg.TLSKey, []byte("invalid renewed key"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := testClient(t, addr)
+	if err := client.StartTLS(&tls.Config{RootCAs: roots, ServerName: "localhost", MinVersion: tls.VersionTLS12}); err == nil {
+		t.Fatal("handshake succeeded with invalid renewed key")
+	}
+	client.Close()
+	// Restoring a valid pair lets the same listener recover on the next handshake.
+	renewed := writeTestCertificate(t, cfg.TLSCert, cfg.TLSKey, 2)
+	roots = x509.NewCertPool()
+	roots.AddCert(renewed)
+	client = testClient(t, addr)
+	if err := client.StartTLS(&tls.Config{RootCAs: roots, ServerName: "localhost", MinVersion: tls.VersionTLS12}); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := client.TLSConnectionState()
+	if state.PeerCertificates[0].SerialNumber.Int64() != 2 {
+		t.Fatal("listener did not recover with renewed certificate")
+	}
+	client.Quit()
 }
