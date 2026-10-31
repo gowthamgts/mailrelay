@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,7 +21,9 @@ import (
 
 	"github.com/gowthamgts/mailrelay/internal/httpcsrf"
 	"github.com/gowthamgts/mailrelay/internal/models"
+	"github.com/gowthamgts/mailrelay/internal/rules"
 	"github.com/gowthamgts/mailrelay/internal/storage"
+	"github.com/gowthamgts/mailrelay/internal/webhook"
 )
 
 // startRun runs mailrelay with the given config file contents and returns the
@@ -411,4 +415,156 @@ func TestSetLogLevel(t *testing.T) {
 			t.Errorf("setLogLevel(%q) = %v, want %v", level, lv.Level(), want)
 		}
 	}
+}
+
+func TestRun_QueueRecoveryFailure(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "recovery.db")
+	store, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &models.EmailRecord{Status: models.EmailStatusReceived}
+	if err := store.SaveEmail(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := store.EnqueueDeliveries(ctx, rec.ID, []storage.QueuedDelivery{{RuleName: "interrupted", Snapshot: []byte(`{}`)}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if job, err := store.ClaimDelivery(ctx, now); err != nil || job == nil {
+		t.Fatalf("claim=%+v,%v", job, err)
+	}
+	store.Close()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_recovery BEFORE UPDATE ON deliveries BEGIN SELECT RAISE(ABORT,'recovery failed'); END`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(fmt.Sprintf("smtp:\n  addr: %q\nhttp:\n  addr: %q\nwebui:\n  db_path: %q\n", freePort(t), freePort(t), path)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(ctx, []string{"-config", cfgPath}, io.Discard); err == nil || !strings.Contains(err.Error(), "starting delivery queue") {
+		t.Fatalf("run=%v", err)
+	}
+}
+
+func TestHandler_QueuePublishFailure(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "publish.db")
+	store, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TRIGGER fail_publish BEFORE INSERT ON delivery_queue BEGIN SELECT RAISE(ABORT,'queue unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	engine := rules.NewEngine()
+	engine.SetRules([]models.Rule{{Name: "publish", Webhook: models.WebhookConfig{URL: "http://127.0.0.1:1"}}})
+	handler := buildHandler(engine, webhook.NewDispatcher(models.RetryConfig{}, "test"), store, nil, "")
+	if err := handler(ctx, &models.ParsedEmail{Subject: "publish failure"}, nil); err == nil || !strings.Contains(err.Error(), "enqueueing deliveries") {
+		t.Fatalf("handler=%v", err)
+	}
+	emails, err := store.ListEmails(ctx, storage.EmailFilter{})
+	if err != nil || len(emails.Emails) != 1 {
+		t.Fatalf("emails=%+v,%v", emails, err)
+	}
+	deliveries, err := store.GetDeliveriesForEmail(ctx, emails.Emails[0].ID)
+	if err != nil || len(deliveries) != 0 {
+		t.Fatalf("partial queue committed: %+v,%v", deliveries, err)
+	}
+}
+
+func TestRun_QueueShutdownDeadline(t *testing.T) {
+	ctx := context.Background()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer hook.Close()
+	defer close(release)
+	path := filepath.Join(t.TempDir(), "shutdown.db")
+	store, err := storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRule(ctx, &models.RuleRecord{Name: "shutdown", Enabled: true, Webhook: models.WebhookConfig{URL: hook.URL}}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	smtpAddr, httpAddr := freePort(t), freePort(t)
+	_, stop := startRun(t, httpAddr, fmt.Sprintf(`
+smtp:
+  addr: %q
+http:
+  addr: %q
+auth:
+  spf: "off"
+  dkim: "off"
+  dmarc: "off"
+webui:
+  db_path: %q
+retry:
+  timeout: 1m
+webhook:
+  allow_private_networks: true
+  shutdown_timeout: 20ms
+`, smtpAddr, httpAddr, path))
+	if err := sendEmail(t, smtpAddr, "sender@example.com", []string{"to@example.com"}, rawMessage("sender@example.com", "to@example.com", "shutdown", "test")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("webhook did not start")
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = storage.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	emails, err := store.ListEmails(ctx, storage.EmailFilter{})
+	if err != nil || len(emails.Emails) != 1 {
+		t.Fatalf("emails=%+v,%v", emails, err)
+	}
+	deliveries, err := store.GetDeliveriesForEmail(ctx, emails.Emails[0].ID)
+	if err != nil || len(deliveries) != 1 || deliveries[0].Status != "pending" || deliveries[0].Attempts != 0 {
+		t.Fatalf("shutdown lost delivery: %+v,%v", deliveries, err)
+	}
+}
+
+func TestCleanupWithoutRawFilesAndUnavailableStore(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Open(filepath.Join(t.TempDir(), "cleanup.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &models.EmailRecord{ReceivedAt: time.Now().Add(-72 * time.Hour), Status: models.EmailStatusDelivered}
+	if err := store.SaveEmail(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	cleanupOnce(ctx, store, 1, "")
+	if ids, err := store.AllEmailIDs(ctx); err != nil || len(ids) != 0 {
+		t.Fatalf("cleanup without raw files: %v,%v", ids, err)
+	}
+	store.Close()
+	cleanupOnce(ctx, store, 1, "")
 }

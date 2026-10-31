@@ -25,6 +25,8 @@ send() {
 
 echo "=== mailrelay test emails ==="
 echo "    target: ${SMTP_HOST}:${SMTP_PORT}"
+echo "    delivery is queued in SQLite; SMTP success does not mean webhook success"
+echo "    inspect pending retries in the UI; restart mailrelay to check they resume"
 echo
 
 # ---------------------------------------------------------------------------
