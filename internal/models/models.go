@@ -91,8 +91,9 @@ const (
 	AuthNone AuthCheckResult = "none"
 )
 
-// AuthResult holds the results of SPF, DKIM, DMARC, and ARC verification.
+// AuthResult holds SPF, DKIM, DMARC, and ARC results and SMTP transport security.
 type AuthResult struct {
+	TLS   bool            `json:"tls"` // Whether the inbound SMTP connection used TLS.
 	SPF   AuthCheckResult `json:"spf"`
 	DKIM  AuthCheckResult `json:"dkim"`
 	DMARC AuthCheckResult `json:"dmarc"`
@@ -287,6 +288,8 @@ func (r *RuleRecord) ToRule() Rule {
 
 // WebhookPolicy holds settings that apply to every outgoing webhook request.
 type WebhookPolicy struct {
+	Workers         int           `json:"workers" koanf:"workers"`
+	ShutdownTimeout time.Duration `json:"shutdown_timeout" koanf:"shutdown_timeout"`
 	// AllowPrivateNetworks lets webhooks (and the UI's Test button) reach
 	// loopback, private, link-local and other internal addresses.
 	AllowPrivateNetworks bool `json:"allow_private_networks" koanf:"allow_private_networks"`
@@ -303,6 +306,9 @@ type RetryConfig struct {
 
 // SMTPConfig defines SMTP server settings.
 type SMTPConfig struct {
+	TLSCert           string        `json:"tls_cert" koanf:"tls_cert"`
+	TLSKey            string        `json:"tls_key" koanf:"tls_key"`
+	RequireTLS        bool          `json:"require_tls" koanf:"require_tls"`
 	Addr              string        `json:"addr" koanf:"addr"`
 	Domain            string        `json:"domain" koanf:"domain"`
 	MaxMessageBytes   int64         `json:"max_message_bytes" koanf:"max_message_bytes"`

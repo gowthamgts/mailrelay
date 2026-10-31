@@ -4,6 +4,12 @@ set -euo pipefail
 SMTP_HOST="${SMTP_HOST:-127.0.0.1}"
 SMTP_PORT="${SMTP_PORT:-2525}"
 DELAY="${DELAY:-0.3}"
+# SMTP_TLS=1 requires STARTTLS (also works with a local self-signed cert).
+# Default remains plaintext for the unconfigured development listener.
+TLS_ARGS=()
+if [[ "${SMTP_TLS:-0}" == "1" ]]; then
+  TLS_ARGS+=(--tls)
+fi
 
 if ! command -v swaks &>/dev/null; then
   echo "swaks is not installed."
@@ -18,13 +24,15 @@ send() {
   local label="$1"; shift
   COUNT=$((COUNT + 1))
   printf "[%2d] %s\n" "$COUNT" "$label"
-  swaks "$@" --server "${SMTP_HOST}:${SMTP_PORT}" --timeout 5 2>&1 | grep -E '^\*\*\*|<~|~>|<\*\*|=== ' || true
+  swaks "$@" ${TLS_ARGS[@]+"${TLS_ARGS[@]}"} --server "${SMTP_HOST}:${SMTP_PORT}" --timeout 5 2>&1 | grep -E '^\*\*\*|<~|~>|<\*\*|=== ' || true
   echo
   sleep "$DELAY"
 }
 
 echo "=== mailrelay test emails ==="
 echo "    target: ${SMTP_HOST}:${SMTP_PORT}"
+echo "    delivery is queued in SQLite; SMTP success does not mean webhook success"
+echo "    inspect pending retries in the UI; restart mailrelay to check they resume"
 echo
 
 # ---------------------------------------------------------------------------

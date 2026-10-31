@@ -86,7 +86,11 @@ SMTP ──▶ SPF / DKIM / DMARC ──▶ rule matching ──▶ webhooks (as
                (off | log | enforce)          every matching rule fires
 ```
 
-mailrelay replies `250 OK` as soon as it accepts an email. Webhooks are sent in the background with exponential backoff, so a slow or failing webhook never bounces mail. Every attempt is recorded, and any email can be replayed from the UI.
+mailrelay persists the email and its webhook queue entries in SQLite before replying `250 OK`, without waiting for webhook requests. If persistence fails, SMTP returns a temporary `451` so the sender can retry. A bounded worker pool sends webhooks in the background with exponential backoff. Pending retries survive restarts; requests interrupted by a crash are retried. Delivery is at least once: a receiver may see duplicates if mailrelay stops after sending a request but before recording its response.
+
+Each queued delivery keeps its payload, webhook configuration and effective retry settings, including per-webhook overrides. Changes to rules or retry settings apply to new deliveries; UI replay queues a new batch using the current rules. Each attempt updates the existing delivery record, and the email reaches a final status after all its deliveries finish (the latest replay batch determines the result).
+
+`webhook.workers` limits concurrent deliveries (default `4`), with due work polled every 100ms. Shutdown stops new work and allows in-flight requests up to `webhook.shutdown_timeout` (default `30s`) to finish; remaining work stays persisted. Retention keeps emails and raw messages with pending or in-progress deliveries until they finish. Manual deletion removes their queued deliveries too. Run only one mailrelay process per database.
 
 ## Rules
 
@@ -122,7 +126,7 @@ With no template, the webhook receives the whole parsed email:
   "text_body": "…",
   "html_body": "…",
   "attachments": [{ "filename": "a.pdf", "content_type": "application/pdf", "content": "base64…" }],
-  "auth_result": { "spf": "pass", "dkim": "pass", "dmarc": "pass", "arc": "none" },
+  "auth_result": { "spf": "pass", "dkim": "pass", "dmarc": "pass", "arc": "none", "tls": true },
   "envelope_from": "bounce@example.com",
   "envelope_to": ["you@example.com"]
 }
@@ -158,17 +162,22 @@ Settings are layered: built-in defaults, then an optional config file (YAML, JSO
 | Setting | Default |
 | --- | --- |
 | `smtp.addr` | `0.0.0.0:25` |
+| `smtp.tls_cert` / `smtp.tls_key` | empty (set both PEM paths to offer STARTTLS; reloaded on every handshake) |
+| `smtp.require_tls` | `false` (when true, MAIL FROM requires STARTTLS; needs a certificate/key) |
 | `smtp.allowed_recipients` | empty (accept any recipient) |
 | `http.addr` | `127.0.0.1:2623` (`0.0.0.0:2623` in Docker) |
 | `webui.enabled` | `true` (rules are stored in its database, so turning it off drops all mail) |
 | `webui.retention_days` | `7` |
 | `auth.spf` / `dkim` / `dmarc` | `log` (`off`, `log` or `enforce`; `enforce` rejects with SMTP 550) |
 | `retry.max_retries` / `retry.timeout` | `3` / `30s` |
+| `webhook.workers` / `webhook.shutdown_timeout` | `4` / `30s` |
 | `webhook.allow_private_networks` | `false` (blocks localhost, LAN, Docker, Tailscale and metadata addresses) |
 
 Retry, auth mode, log level and retention can also be changed at runtime on the **Settings** page.
 
 **Web UI login.** Set `http.auth.enabled: true` and add an OpenID Connect provider (Google, Okta, Auth0, Keycloak, Authentik, ...) under `http.auth.providers` with its `issuer_url`, `client_id` and `client_secret`; endpoints are discovered from the issuer. Register `https://<your-host>/auth/callback` as the redirect URI (or pin it with `http.auth.redirect_url` behind a proxy). ID tokens are verified (signature, issuer, audience, expiry, nonce). `allowed_email_domains` limits access to verified emails on those domains; leave it empty and any account at the provider can sign in. Set `session_secret` so sessions survive restarts. GitHub login is not supported, since GitHub does not speak OIDC.
+
+**SMTP encryption.** Configure both TLS PEM paths to offer opportunistic STARTTLS (TLS 1.2 or newer). Email details and the webhook’s `auth_result.tls` boolean record whether the inbound connection used TLS. See [certificate setup](docs/self-hosting.md#smtp-starttls) for Let’s Encrypt and renewal instructions.
 
 **Forwarded mail.** When a provider such as Gmail or Fastmail forwards to mailrelay, the envelope addresses differ from the headers. The UI shows the original header From/To and lists the envelope separately, and rules can match either one. ARC is verified so the original SPF/DKIM results survive forwarding.
 

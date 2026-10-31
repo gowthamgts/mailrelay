@@ -459,26 +459,10 @@ func (h *Handler) handleReplay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results := h.dispatcher.Dispatch(r.Context(), email.ParsedEmail, matched)
-
-	for _, res := range results {
-		delivery := &models.DeliveryRecord{
-			EmailID:      id,
-			RuleName:     res.RuleName,
-			Status:       res.Status,
-			StatusCode:   res.StatusCode,
-			ErrorMessage: res.Error,
-			ResponseBody: res.ResponseBody,
-			Attempts:     res.Attempts,
-		}
-		if err := h.store.SaveDelivery(r.Context(), delivery); err != nil {
-			slog.Error("failed to save replay delivery", "error", err)
-		}
-	}
-
-	newStatus := computeStatus(results)
-	if err := h.store.UpdateEmailStatus(r.Context(), id, newStatus); err != nil {
-		slog.Error("failed to update email status", "id", id, "error", err)
+	if err := h.dispatcher.Enqueue(r.Context(), h.store, id, email.ParsedEmail, matched); err != nil {
+		slog.Error("failed to enqueue replay", "id", id, "error", err)
+		http.Error(w, "Failed to enqueue replay", http.StatusInternalServerError)
+		return
 	}
 
 	h.Events.Notify()

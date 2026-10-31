@@ -4,6 +4,7 @@
 
 | Status | Meaning |
 | --- | --- |
+| **Received** | Accepted and queued; one or more deliveries may still be pending or in progress. |
 | **Delivered** | Every matching rule's webhook returned 2xx. |
 | **Dropped** | The email was accepted, but no rule matched it. Nothing was sent. |
 | **Partial failure** | Some matching webhooks succeeded and some didn't. |
@@ -28,6 +29,15 @@ Work through these in order:
 
    For a batch of varied test emails (attachments, HTML, CC, forwarded mail), run [`scripts/test-emails.sh`](../scripts/test-emails.sh) with `SMTP_HOST` and `SMTP_PORT` set.
 
+## STARTTLS or certificate errors
+
+- **No STARTTLS advertised:** configure both `smtp.tls_cert` and `smtp.tls_key`, then restart to enable TLS. The certificate contents reload on each handshake after that.
+- **Startup or handshake fails:** check that the PEM certificate and key match, the full chain is present, and the process user can read both paths and traverse their directories. Certbot symlinks need access to `archive` as well as `live`; Docker needs both mounted. New handshakes read from disk, so fix permissions or replace the pair to recover without restarting.
+- **530 Must issue STARTTLS first:** `smtp.require_tls` is enabled. Use `swaks --tls`, or set `SMTP_TLS=1` for the batch script. A rejection at MAIL FROM has no message body to save in the UI.
+- **Certificate verification fails:** use a publicly trusted certificate for the MX hostname, with its full chain, and check its expiry. Test with `openssl s_client -starttls smtp -connect mx.example.com:25 -servername mx.example.com`.
+
+See [SMTP STARTTLS setup](self-hosting.md#smtp-starttls).
+
 ## The email shows as Dropped
 
 No rule matched. Open the email and compare its fields with your rule's conditions:
@@ -46,6 +56,16 @@ Open the email to see each attempt:
 - **4xx:** the receiver didn't like the request: a wrong URL, a missing auth header, or a payload it can't parse. 4xx responses aren't retried. Check the response body.
 - **5xx or timeout:** the receiver is down or slow. These are retried; raise `retry.timeout` if the receiver needs longer.
 - **Template errors** are flagged in the rule editor as you type. Remember that variables go in without quotes.
+
+## Retries after a restart
+
+Webhook deliveries and their next attempt time are stored in the SQLite database (`webui.db_path`). Keep that database on a persistent volume. On startup, pending deliveries resume when due, and requests left in progress are retried. Already completed deliveries are not resent. A crash after the receiver accepts a request can cause a duplicate, so receivers should handle duplicate messages safely. Run only one mailrelay process per database.
+
+An email stays **Received** until all queued deliveries finish. Delivery records show `pending` or `in_progress` and the completed attempt count. Retries use the payload, target and effective retry policy captured when queued, including `max_retries`, `initial_wait`, `max_wait`, timeout and `retry_on_timeout`. Settings changes affect new deliveries. **Replay** queues another batch with the current rules and preserves earlier delivery records; its HTTP response does not wait for webhook delivery.
+
+`webhook.workers` (default `4`) bounds concurrent requests. Due work is checked every 100ms, so a saturated queue can run later than its scheduled time. On shutdown, new claims stop and requests can finish for `webhook.shutdown_timeout` (default `30s`). Requests canceled at the deadline return to pending without consuming a retry. These two settings require a restart and can be set with `MAILRELAY_WEBHOOK__WORKERS` and `MAILRELAY_WEBHOOK__SHUTDOWN_TIMEOUT`.
+
+Retention skips emails and raw `.eml` files with unfinished deliveries, even beyond `webui.retention_days`. They become eligible after delivery finishes. Manually deleting an email also deletes its delivery queue; an HTTP request already in flight may still reach the receiver. If SMTP cannot save an email or queue entry, it replies `451` rather than acknowledging work that could be lost.
 
 ## Auth checks and forwarded mail
 
