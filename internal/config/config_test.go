@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gowthamgts/mailrelay/internal/models"
 )
@@ -88,6 +89,8 @@ func TestValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.cfg.Webhook.Workers = 4
+			tt.cfg.Webhook.ShutdownTimeout = 30 * time.Second
 			err := validate(tt.cfg)
 			if tt.wantErr == "" {
 				if err != nil {
@@ -262,8 +265,30 @@ func TestTLSConfigValidation(t *testing.T) {
 		{"required", models.SMTPConfig{TLSCert: "cert.pem", TLSKey: "key.pem", RequireTLS: true}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := validate(&models.AppConfig{SMTP: tc.smtp}); (err != nil) != tc.invalid {
+			if err := validate(&models.AppConfig{SMTP: tc.smtp, Webhook: models.WebhookPolicy{Workers: 1, ShutdownTimeout: time.Second}}); (err != nil) != tc.invalid {
 				t.Fatalf("validate = %v, invalid = %v", err, tc.invalid)
+			}
+		})
+	}
+}
+
+func TestQueueConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name, workers, timeout string
+		valid                  bool
+	}{
+		{"defaults", "4", "30s", true},
+		{"overrides", "2", "5s", true},
+		{"zero workers", "0", "30s", false},
+		{"negative workers", "-1", "30s", false},
+		{"zero timeout", "4", "0s", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MAILRELAY_WEBHOOK__WORKERS", tc.workers)
+			t.Setenv("MAILRELAY_WEBHOOK__SHUTDOWN_TIMEOUT", tc.timeout)
+			cfg, err := Load(filepath.Join(t.TempDir(), "absent.yaml"))
+			if (err == nil) != tc.valid {
+				t.Fatalf("config=%+v, error=%v", cfg, err)
 			}
 		})
 	}

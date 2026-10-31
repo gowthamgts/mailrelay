@@ -86,7 +86,11 @@ SMTP ──▶ SPF / DKIM / DMARC ──▶ rule matching ──▶ webhooks (as
                (off | log | enforce)          every matching rule fires
 ```
 
-mailrelay replies `250 OK` as soon as it accepts an email. Webhooks are sent in the background with exponential backoff, so a slow or failing webhook never bounces mail. Every attempt is recorded, and any email can be replayed from the UI.
+mailrelay persists the email and its webhook queue entries in SQLite before replying `250 OK`, without waiting for webhook requests. If persistence fails, SMTP returns a temporary `451` so the sender can retry. A bounded worker pool sends webhooks in the background with exponential backoff. Pending retries survive restarts; requests interrupted by a crash are retried. Delivery is at least once: a receiver may see duplicates if mailrelay stops after sending a request but before recording its response.
+
+Each queued delivery keeps its payload, webhook configuration and effective retry settings, including per-webhook overrides. Changes to rules or retry settings apply to new deliveries; UI replay queues a new batch using the current rules. Each attempt updates the existing delivery record, and the email reaches a final status after all its deliveries finish (the latest replay batch determines the result).
+
+`webhook.workers` limits concurrent deliveries (default `4`), with due work polled every 100ms. Shutdown stops new work and allows in-flight requests up to `webhook.shutdown_timeout` (default `30s`) to finish; remaining work stays persisted. Retention keeps emails and raw messages with pending or in-progress deliveries until they finish. Manual deletion removes their queued deliveries too. Run only one mailrelay process per database.
 
 ## Rules
 
@@ -155,6 +159,7 @@ Settings are layered: built-in defaults, then an optional config file (YAML, JSO
 | `webui.retention_days` | `7` |
 | `auth.spf` / `dkim` / `dmarc` | `log` (`off`, `log` or `enforce`; `enforce` rejects with SMTP 550) |
 | `retry.max_retries` / `retry.timeout` | `3` / `30s` |
+| `webhook.workers` / `webhook.shutdown_timeout` | `4` / `30s` |
 | `webhook.allow_private_networks` | `false` (blocks localhost, LAN, Docker, Tailscale and metadata addresses) |
 
 Retry, auth mode, log level and retention can also be changed at runtime on the **Settings** page.

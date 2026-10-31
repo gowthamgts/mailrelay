@@ -19,8 +19,9 @@ import (
 )
 
 // EmailHandler is called for each successfully received email.
-// rawData contains the original RFC 5322 message bytes.
-type EmailHandler func(ctx context.Context, email *models.ParsedEmail, rawData []byte)
+// rawData contains the original RFC 5322 message bytes. It must persist work
+// without waiting for network deliveries; an error returns a temporary SMTP failure.
+type EmailHandler func(ctx context.Context, email *models.ParsedEmail, rawData []byte) error
 
 // RejectionHandler is called when an email is rejected at the SMTP level
 // (e.g. SPF/DKIM/DMARC enforcement failure). It allows the rejection to be
@@ -209,14 +210,16 @@ func (s *session) Data(r io.Reader) error {
 		"dmarc", authResult.DMARC,
 	)
 
+	// Persist acceptance before replying 250; handlers enqueue network work.
+	s.server.wg.Add(1)
+	defer s.server.wg.Done()
+	if err := s.server.handler(s.server.ctx, email, rawData); err != nil {
+		slog.Error("failed to persist accepted email", "error", err)
+		return &gosmtp.SMTPError{Code: 451, EnhancedCode: gosmtp.EnhancedCode{4, 3, 0}, Message: "Unable to queue email; try again later"}
+	}
+
 	metrics.SMTPEmailsReceivedTotal.Inc()
 	metrics.SMTPEmailProcessingDuration.Observe(time.Since(start).Seconds())
-
-	s.server.wg.Add(1)
-	go func() {
-		defer s.server.wg.Done()
-		s.server.handler(s.server.ctx, email, rawData)
-	}()
 
 	return nil
 }

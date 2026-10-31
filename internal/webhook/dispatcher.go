@@ -28,6 +28,8 @@ type Dispatcher struct {
 	retry        models.RetryConfig
 	userAgent    string
 	allowPrivate atomic.Bool
+	queue        *deliveryQueue
+	now          func() time.Time
 }
 
 // NewDispatcher creates a new webhook dispatcher. It can reach any address
@@ -35,6 +37,7 @@ type Dispatcher struct {
 func NewDispatcher(retry models.RetryConfig, version string) *Dispatcher {
 	d := &Dispatcher{
 		retry:     retry,
+		now:       time.Now,
 		userAgent: "mailrelay/" + version,
 	}
 	d.allowPrivate.Store(true)

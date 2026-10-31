@@ -62,9 +62,13 @@ func newUIHarness(t *testing.T) *uiHarness {
 	wrapped := csrfMiddleware(mux)
 	wrapped = withSecurityHeaders(wrapped)
 
+	if err := dispatcher.StartQueue(store, 2, handler.Events.Notify); err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(wrapped)
 	t.Cleanup(func() {
 		srv.Close()
+		dispatcher.Shutdown(context.Background())
 		store.Close()
 		os.Remove(dbPath)
 	})
@@ -652,4 +656,69 @@ func TestUI_EmailTransport(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Replay returns a queued delivery immediately and the list updates on completion.
+func TestUI_PersistentQueueReplay(t *testing.T) {
+	ctx := context.Background()
+	h := newUIHarness(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(entered)
+		<-release
+		w.Write([]byte("queued response"))
+	}))
+	defer hook.Close()
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	rule := &models.RuleRecord{Name: "queued replay", Enabled: true, Webhook: models.WebhookConfig{URL: hook.URL}}
+	if err := h.store.SaveRule(ctx, rule); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.handler.LoadRules(ctx); err != nil {
+		t.Fatal(err)
+	}
+	id := h.seedEmail(ctx, t, "Durable replay", "sender@example.com", models.EmailStatusFailed)
+	browser := pwSetup(t)
+	page := newPage(t, browser)
+	if _, err := page.Goto(h.url("/")); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForSelector(t, page, "table tbody tr").Click(); err != nil {
+		t.Fatal(err)
+	}
+	waitForSelector(t, page, "#modal-panel")
+	if err := page.Locator("#modal-panel button[type=submit]").Click(); err != nil {
+		t.Fatal(err)
+	}
+	waitForSelector(t, page, "#modal-panel >> text=queued replay")
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("replay not delivered to worker")
+	}
+	deliveries, err := h.store.GetDeliveriesForEmail(ctx, id)
+	if err != nil || len(deliveries) != 1 {
+		t.Fatalf("deliveries=%+v,%v", deliveries, err)
+	}
+	if deliveries[0].Status != "in_progress" {
+		t.Fatalf("status=%s", deliveries[0].Status)
+	}
+	// The modal rendered while the receiver was still blocked.
+	close(release)
+	released = true
+	waitForSelector(t, page, "table tbody tr >> text=Delivered")
+	if err := page.Keyboard().Press("Escape"); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForSelector(t, page, "table tbody tr").Click(); err != nil {
+		t.Fatal(err)
+	}
+	waitForSelector(t, page, "#modal-panel >> text=queued response")
+	waitForSelector(t, page, "#modal-panel >> text=Success")
 }

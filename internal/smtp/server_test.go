@@ -61,7 +61,7 @@ func startTestServer(t *testing.T, cfg models.SMTPConfig) (string, <-chan *model
 	cfg.Domain = "localhost"
 	cfg.ReadTimeout = 5 * time.Second
 	cfg.WriteTimeout = 5 * time.Second
-	srv := NewServer(context.Background(), cfg, models.AuthConfig{SPF: models.AuthModeOff, DKIM: models.AuthModeOff, DMARC: models.AuthModeOff}, func(_ context.Context, email *models.ParsedEmail, _ []byte) { received <- email })
+	srv := NewServer(context.Background(), cfg, models.AuthConfig{SPF: models.AuthModeOff, DKIM: models.AuthModeOff, DMARC: models.AuthModeOff}, func(_ context.Context, email *models.ParsedEmail, _ []byte) error { received <- email; return nil })
 	if err := srv.configureTLS(); err != nil {
 		t.Fatal(err)
 	}

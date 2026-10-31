@@ -287,6 +287,8 @@ func (r *RuleRecord) ToRule() Rule {
 
 // WebhookPolicy holds settings that apply to every outgoing webhook request.
 type WebhookPolicy struct {
+	Workers         int           `json:"workers" koanf:"workers"`
+	ShutdownTimeout time.Duration `json:"shutdown_timeout" koanf:"shutdown_timeout"`
 	// AllowPrivateNetworks lets webhooks (and the UI's Test button) reach
 	// loopback, private, link-local and other internal addresses.
 	AllowPrivateNetworks bool `json:"allow_private_networks" koanf:"allow_private_networks"`
