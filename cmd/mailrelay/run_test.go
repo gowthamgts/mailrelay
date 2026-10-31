@@ -320,10 +320,25 @@ webui:
 			if got := status("/healthz"); got != http.StatusOK {
 				t.Errorf("/healthz = %d", got)
 			}
-			for _, path := range []string{"/", "/static/app.js", "/auth/login"} {
+			for _, path := range []string{"/", "/static/app.js", "/auth/login", "/rules/export", "/rules/export?format=json"} {
 				if got := status(path); got != http.StatusFound {
 					t.Errorf("%s = %d, want login redirect", path, got)
 				}
+			}
+			// Import is protected by login even when a valid CSRF token is supplied.
+			req, err := http.NewRequest(http.MethodPost, baseURL+"/rules/import?mode=merge", strings.NewReader("version: 1\nrules: []"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.AddCookie(&http.Cookie{Name: "mailrelay_csrf", Value: "test-csrf"})
+			req.Header.Set("X-CSRF-Token", "test-csrf")
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusFound {
+				t.Fatalf("unauthenticated import = %d", resp.StatusCode)
 			}
 			wantMetrics := http.StatusOK
 			if protectMetrics {
