@@ -115,6 +115,13 @@ func defaults() *models.AppConfig {
 }
 
 func validate(cfg *models.AppConfig) error {
+	if (cfg.SMTP.TLSCert == "") != (cfg.SMTP.TLSKey == "") {
+		return fmt.Errorf("smtp.tls_cert and smtp.tls_key must be set together")
+	}
+	if cfg.SMTP.RequireTLS && cfg.SMTP.TLSCert == "" {
+		return fmt.Errorf("smtp.require_tls requires smtp.tls_cert and smtp.tls_key")
+	}
+
 	if cfg.WebUI.Enabled && cfg.WebUI.DBPath == "" {
 		return fmt.Errorf("webui.db_path is required when webui is enabled")
 	}

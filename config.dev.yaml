@@ -2,6 +2,10 @@ log_level: debug
 
 smtp:
   addr: "127.0.0.1:2525"
+  # Set both PEM paths to advertise STARTTLS (TLS 1.2+); reloaded every handshake.
+  # tls_cert: "/etc/letsencrypt/live/mx.example.com/fullchain.pem"
+  # tls_key: "/etc/letsencrypt/live/mx.example.com/privkey.pem"
+  require_tls: false # reject MAIL FROM before STARTTLS when true; requires both paths
   domain: "localhost"
   max_message_bytes: 26214400
   max_recipients: 100
