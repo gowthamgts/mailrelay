@@ -37,6 +37,8 @@ retry:
   timeout: 10s
   retry_on_timeout: true
 
+# Per-rule signing_secret is stored in the rules database, configured in the UI.
+# Empty = unsigned. Generate a secret in the rule editor; see docs/webhooks.md.
 webhook:
   allow_private_networks: true # dev webhooks usually point at localhost
 

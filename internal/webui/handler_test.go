@@ -3,7 +3,10 @@ package webui
 import (
 	"bufio"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -821,5 +824,131 @@ func TestTemplateFuncs(t *testing.T) {
 	}
 	if got := call("formatTime", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)); got != "Jan 02, 2026 03:04:05 UTC" {
 		t.Errorf("formatTime = %q", got)
+	}
+}
+
+func TestRuleSigningSecretLifecycle(t *testing.T) {
+	e := newTestEnv(t)
+	form := url.Values{"name": {"signed"}, "webhook_url": {"https://example.com"}, "signing_secret": {"private-secret"}}
+	if rec := e.do(t, "POST", "/rules", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatal(rec.Code)
+	}
+	records, err := e.store.ListRules(context.Background())
+	if err != nil || len(records) != 1 {
+		t.Fatalf("rules: %v %v", records, err)
+	}
+	id := records[0].ID
+	if records[0].Webhook.SigningSecret != "private-secret" {
+		t.Fatal("secret not saved")
+	}
+	page := e.do(t, "GET", "/rules", nil, false).Body.String()
+	if strings.Contains(page, "private-secret") || !strings.Contains(page, `data-rule-signed="true"`) {
+		t.Fatal("secret leaked or signed status missing")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Mailrelay-Signature") == "" {
+			t.Error("test did not use stored secret")
+		}
+	}))
+	defer srv.Close()
+	e.do(t, "POST", "/rules/test-webhook", url.Values{"webhook_url": {srv.URL}, "rule_id": {id}}, true)
+	for _, step := range []struct{ value, clear, want string }{{"", "", "private-secret"}, {"replacement", "", "replacement"}, {"", "on", ""}} {
+		form.Set("signing_secret", step.value)
+		form.Set("clear_signing_secret", step.clear)
+		if rec := e.do(t, "POST", "/rules/"+id, form, false); rec.Code != http.StatusSeeOther {
+			t.Fatal(rec.Code)
+		}
+		record, err := e.store.GetRule(context.Background(), id)
+		if err != nil || record.Webhook.SigningSecret != step.want {
+			t.Fatalf("secret = %+v, err %v", record, err)
+		}
+	}
+}
+
+func TestTestWebhookSigning(t *testing.T) {
+	e := newTestEnv(t)
+	rule := &models.RuleRecord{Name: "signed test", Webhook: models.WebhookConfig{SigningSecret: "saved-secret"}}
+	if err := e.store.SaveRule(context.Background(), rule); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name, ruleID, entered, clear, wantSecret string
+	}{
+		{name: "unsigned new rule"},
+		{name: "new secret", entered: "new-secret", wantSecret: "new-secret"},
+		{name: "preserve saved secret", ruleID: rule.ID, wantSecret: "saved-secret"},
+		{name: "replace saved secret", ruleID: rule.ID, entered: "replacement", wantSecret: "replacement"},
+		{name: "clear saved secret", ruleID: rule.ID, clear: "on"},
+		{name: "clear overrides entered secret", ruleID: rule.ID, entered: "replacement", clear: "on"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if string(body) != "{}" {
+					t.Errorf("test body = %q, want {}", body)
+				}
+				timestamp := r.Header.Get("X-Mailrelay-Timestamp")
+				signature := r.Header.Get("X-Mailrelay-Signature")
+				deliveryID := r.Header.Get("X-Mailrelay-Delivery")
+				if tc.wantSecret == "" {
+					if timestamp != "" || signature != "" || deliveryID != "" {
+						t.Error("unsigned Test request has signing headers")
+					}
+					return
+				}
+				if timestamp == "" || deliveryID == "" {
+					t.Error("missing timestamp or delivery ID")
+				}
+				mac := hmac.New(sha256.New, []byte(tc.wantSecret))
+				mac.Write([]byte(timestamp + "."))
+				mac.Write(body)
+				if want := "sha256=" + hex.EncodeToString(mac.Sum(nil)); signature != want {
+					t.Errorf("signature = %q, want %q", signature, want)
+				}
+			}))
+			defer srv.Close()
+			rec := e.do(t, "POST", "/rules/test-webhook", url.Values{
+				"webhook_url": {srv.URL}, "rule_id": {tc.ruleID},
+				"signing_secret": {tc.entered}, "clear_signing_secret": {tc.clear},
+			}, true)
+			var result struct {
+				Success bool `json:"success"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if rec.Code != http.StatusOK || !result.Success || calls.Load() != 1 {
+				t.Fatalf("status = %d, body = %s, requests = %d", rec.Code, rec.Body, calls.Load())
+			}
+			stored, err := e.store.GetRule(context.Background(), rule.ID)
+			if err != nil || stored.Webhook.SigningSecret != "saved-secret" {
+				t.Fatalf("Test modified saved secret: %+v, %v", stored, err)
+			}
+		})
+	}
+}
+
+func TestTestWebhookMissingRule(t *testing.T) {
+	e := newTestEnv(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+	}))
+	defer srv.Close()
+	rec := e.do(t, "POST", "/rules/test-webhook", url.Values{
+		"webhook_url": {srv.URL}, "rule_id": {"missing-rule"}, "signing_secret": {"do-not-send"},
+	}, true)
+	if rec.Code != http.StatusNotFound || strings.TrimSpace(rec.Body.String()) != "Rule not found" {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("sent webhook despite missing rule")
 	}
 }
