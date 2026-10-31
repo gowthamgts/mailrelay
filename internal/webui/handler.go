@@ -340,6 +340,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("POST /settings", h.handleSettingsSave)
 	mux.HandleFunc("GET /rules", h.handleRulesList)
+	mux.HandleFunc("GET /rules/export", h.handleRulesExport)
+	mux.HandleFunc("POST /rules/import", h.handleRulesImport)
 	mux.HandleFunc("POST /rules", h.handleRuleCreate)
 	mux.HandleFunc("GET /rules/{id}/edit", h.handleRuleEditForm)
 	mux.HandleFunc("POST /rules/{id}", h.handleRuleUpdate)
@@ -1192,6 +1194,9 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 		Webhook: wh,
 	}
 
+	if err := rules.Validate(rule); err != nil {
+		return rule, err.Error()
+	}
 	return rule, ""
 }
 

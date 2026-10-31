@@ -1,0 +1,17 @@
+# URLs, headers and templates may contain secrets. Store securely.
+version: 1
+rules:
+  - name: invoice alerts
+    enabled: true
+    position: 0
+    match:
+      mode: all
+      conditions:
+        - field: subject
+          pattern: '/(?i)invoice/'
+    webhook:
+      url: https://hooks.example.com/invoices
+      method: POST
+      headers:
+        Content-Type: application/json
+      payload_template: '{"subject": {{ .Subject }}, "from": {{ .From }}}'
