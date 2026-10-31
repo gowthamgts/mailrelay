@@ -61,7 +61,12 @@ func newTestEnv(t *testing.T) *testEnv {
 			Timeout:     5 * time.Second,
 		},
 	}
-	h, err := NewHandler(store, rules.NewEngine(), webhook.NewDispatcher(cfg.Retry, "test"), rawDir, cfg)
+	dispatcher := webhook.NewDispatcher(cfg.Retry, "test")
+	if err := dispatcher.StartQueue(store, 2, nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dispatcher.Shutdown(context.Background()) })
+	h, err := NewHandler(store, rules.NewEngine(), dispatcher, rawDir, cfg)
 	if err != nil {
 		t.Fatalf("new handler: %v", err)
 	}
@@ -222,6 +227,14 @@ func TestReplay(t *testing.T) {
 		rec := e.do(t, "POST", "/emails/"+id+"/replay", nil, true)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d", rec.Code)
+		}
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			email, _ := e.store.GetEmail(context.Background(), id)
+			if email.Status == models.EmailStatusDelivered {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 		if hits.Load() != 1 {
 			t.Errorf("webhook hits = %d, want 1", hits.Load())

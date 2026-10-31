@@ -55,6 +55,8 @@ retry:
   retry_on_timeout: true # MAILRELAY_RETRY__RETRY_ON_TIMEOUT (retry timed-out requests; can be overridden per-webhook)
 
 webhook:
+  workers: 4 # maximum concurrent deliveries; pending retries survive restarts
+  shutdown_timeout: 30s # allow in-flight requests to finish before leaving them pending
   # Let webhooks (and the rule editor's Test button) reach loopback, private
   # (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (incl. 169.254.169.254
   # cloud metadata) and CGNAT/Tailscale (100.64/10) addresses. Off by default so
