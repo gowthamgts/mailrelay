@@ -54,6 +54,8 @@ retry:
   timeout: 30s # MAILRELAY_RETRY__TIMEOUT (per-request HTTP timeout; 0 = no timeout; can be overridden per-webhook)
   retry_on_timeout: true # MAILRELAY_RETRY__RETRY_ON_TIMEOUT (retry timed-out requests; can be overridden per-webhook)
 
+# Per-rule signing_secret is stored in the rules database, configured in the UI.
+# Empty = unsigned. Generate a secret in the rule editor; see docs/webhooks.md.
 webhook:
   # Let webhooks (and the rule editor's Test button) reach loopback, private
   # (10/8, 172.16/12, 192.168/16, fc00::/7), link-local (incl. 169.254.169.254

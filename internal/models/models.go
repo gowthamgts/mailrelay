@@ -204,6 +204,7 @@ func (m *MatcherConfig) EffectiveMode() string {
 
 // WebhookConfig defines the webhook target for a rule.
 type WebhookConfig struct {
+	SigningSecret   string            `json:"signing_secret,omitempty"`
 	URL             string            `json:"url"`
 	Method          string            `json:"method"`
 	Headers         map[string]string `json:"headers,omitempty"`

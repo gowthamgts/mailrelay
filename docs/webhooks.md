@@ -13,13 +13,121 @@ A request counts as delivered on any 2xx response. A 4xx response isn't retried,
 
 ## Securing your receivers
 
-mailrelay doesn't sign requests, so anyone who learns your webhook URL can send fake ones. Give each receiver a secret it checks:
+Set a **Signing secret** in each rule to enable HMAC-SHA256 signing. **Generate**
+creates 32 random bytes encoded as hex; copy the displayed value before saving.
+Use that exact text as the receiver's secret (do not hex-decode it). Saved secrets
+are never sent back to the editor: an empty edit keeps the current secret; use
+**Clear saved secret** to disable signing. Secrets are stored in the rule database,
+so protect database files and backups. Rotate by entering or generating a replacement.
+
+Signed requests include:
+
+- `X-Mailrelay-Timestamp`: Unix seconds, recalculated for every attempt.
+- `X-Mailrelay-Signature`: `sha256=` followed by the lowercase hex HMAC-SHA256 of
+  `<timestamp>.<raw body>`, using the literal UTF-8 secret as the key.
+- `X-Mailrelay-Delivery`: a UUID stable across automatic retries of one dispatch.
+  A replay or editor Test gets a new ID. This ID is not part of the signature;
+  only use it for deduplication after verifying the signature, over HTTPS.
+
+The body is the exact default JSON or rendered template bytes sent over HTTP.
+Retries use the current timestamp; attempts in the same second can share a
+signature. Signing headers override custom headers with the same names. The
+editor's **Test** sends `{}` signed with the entered secret or the saved secret
+when the field is blank. Clearing the secret also makes Test unsigned.
+Signed requests do not follow HTTP redirects; configure the final receiver URL.
+An empty secret leaves the existing unsigned behavior unchanged.
+
+Other receiver protections:
 
 - **A secret header.** Add `Authorization: Bearer <token>` or `X-Webhook-Secret: <token>` in the rule's Headers box, and reject requests without it.
 - **A secret in the URL.** Many services already work this way (Discord, Slack, Home Assistant and n8n webhook URLs contain a random ID). Treat those URLs as passwords.
 - **HTTPS** for anything that leaves your network, so the secret and the email content aren't sent in the clear.
 
 Don't rely on the `User-Agent`; anyone can copy it.
+
+## Verifying signatures
+
+Read the raw body before parsing JSON. Require an integer timestamp within five
+minutes in either direction, and compare the expected signature in constant time.
+Reject missing or malformed headers. Keep sender and receiver clocks synchronized.
+For a captured request you can also use `scripts/verify-webhook.py`: set
+`MAILRELAY_SIGNING_SECRET` and pass the timestamp and signature as arguments,
+with the exact body on stdin.
+
+These functions take the literal shared secret, raw request bytes, and the two
+header values; return an unauthorized response when verification fails.
+
+### Go
+
+```go
+import (
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/hex"
+    "strconv"
+    "strings"
+    "time"
+)
+
+func verify(secret string, body []byte, timestamp, signature string) bool {
+    seconds, err := strconv.ParseInt(timestamp, 10, 64)
+    now := time.Now().Unix()
+    if err != nil || seconds < now-300 || seconds > now+300 {
+        return false
+    }
+    if !strings.HasPrefix(signature, "sha256=") {
+        return false
+    }
+    received, err := hex.DecodeString(strings.TrimPrefix(signature, "sha256="))
+    if err != nil { return false }
+    mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write([]byte(timestamp + "."))
+    mac.Write(body)
+    return hmac.Equal(mac.Sum(nil), received)
+}
+```
+
+### Python
+
+```python
+import hashlib
+import hmac
+import re
+import time
+
+
+def verify(secret: str, body: bytes, timestamp: str, signature: str) -> bool:
+    if not re.fullmatch(r"[0-9]+", timestamp):
+        return False
+    if abs(int(time.time()) - int(timestamp)) > 300:
+        return False
+    if not re.fullmatch(r"sha256=[0-9a-f]{64}", signature):
+        return False
+    expected = "sha256=" + hmac.new(
+        secret.encode("utf-8"), timestamp.encode("ascii") + b"." + body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+```
+
+### Node.js
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verify(secret, body, timestamp, signature) {
+  // body must be the raw Buffer, captured before JSON middleware.
+  if (!/^[0-9]+$/.test(timestamp ?? '')) return false;
+  const seconds = Number(timestamp);
+  if (!Number.isSafeInteger(seconds) ||
+      Math.abs(Math.floor(Date.now() / 1000) - seconds) > 300) return false;
+  if (!/^sha256=[0-9a-f]{64}$/.test(signature ?? '')) return false;
+  const expected = createHmac('sha256', Buffer.from(secret, 'utf8'))
+    .update(timestamp + '.', 'utf8').update(body).digest();
+  const received = Buffer.from(signature.slice(7), 'hex');
+  return received.length === expected.length && timingSafeEqual(expected, received);
+}
+```
 
 ## Templates
 

@@ -823,3 +823,41 @@ func TestTemplateFuncs(t *testing.T) {
 		t.Errorf("formatTime = %q", got)
 	}
 }
+
+func TestRuleSigningSecretLifecycle(t *testing.T) {
+	e := newTestEnv(t)
+	form := url.Values{"name": {"signed"}, "webhook_url": {"https://example.com"}, "signing_secret": {"private-secret"}}
+	if rec := e.do(t, "POST", "/rules", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatal(rec.Code)
+	}
+	records, err := e.store.ListRules(context.Background())
+	if err != nil || len(records) != 1 {
+		t.Fatalf("rules: %v %v", records, err)
+	}
+	id := records[0].ID
+	if records[0].Webhook.SigningSecret != "private-secret" {
+		t.Fatal("secret not saved")
+	}
+	page := e.do(t, "GET", "/rules", nil, false).Body.String()
+	if strings.Contains(page, "private-secret") || !strings.Contains(page, `data-rule-signed="true"`) {
+		t.Fatal("secret leaked or signed status missing")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Mailrelay-Signature") == "" {
+			t.Error("test did not use stored secret")
+		}
+	}))
+	defer srv.Close()
+	e.do(t, "POST", "/rules/test-webhook", url.Values{"webhook_url": {srv.URL}, "rule_id": {id}}, true)
+	for _, step := range []struct{ value, clear, want string }{{"", "", "private-secret"}, {"replacement", "", "replacement"}, {"", "on", ""}} {
+		form.Set("signing_secret", step.value)
+		form.Set("clear_signing_secret", step.clear)
+		if rec := e.do(t, "POST", "/rules/"+id, form, false); rec.Code != http.StatusSeeOther {
+			t.Fatal(rec.Code)
+		}
+		record, err := e.store.GetRule(context.Background(), id)
+		if err != nil || record.Webhook.SigningSecret != step.want {
+			t.Fatalf("secret = %+v, err %v", record, err)
+		}
+	}
+}
