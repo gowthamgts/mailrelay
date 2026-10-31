@@ -20,6 +20,13 @@ are never sent back to the editor: an empty edit keeps the current secret; use
 **Clear saved secret** to disable signing. Secrets are stored in the rule database,
 so protect database files and backups. Rotate by entering or generating a replacement.
 
+The pending-delivery queue never stores the secret. It is read from the rule at
+send time, so a rotated secret also applies to deliveries that are still retrying;
+update your receiver before rotating, or accept failed verifications for those
+retries. If the rule is deleted or its secret is cleared while a signed delivery
+is pending, that delivery fails with "signing secret … is no longer available"
+instead of being sent unsigned.
+
 Signed requests include:
 
 - `X-Mailrelay-Timestamp`: Unix seconds, recalculated for every attempt.

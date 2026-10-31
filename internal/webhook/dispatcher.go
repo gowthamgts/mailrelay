@@ -33,6 +33,7 @@ type Dispatcher struct {
 	retry        models.RetryConfig
 	userAgent    string
 	allowPrivate atomic.Bool
+	secretLookup atomic.Pointer[func(string) (string, bool)]
 	queue        *deliveryQueue
 	now          func() time.Time
 }

@@ -15,7 +15,8 @@ import (
 )
 
 type deliverySnapshot struct {
-	Rule         models.Rule
+	Rule         models.Rule // SigningSecret is never persisted; see Signed.
+	Signed       bool
 	Payload      []byte
 	Retry        models.RetryConfig
 	PayloadError string
@@ -94,7 +95,10 @@ func (d *Dispatcher) Enqueue(ctx context.Context, store *storage.Store, emailID 
 			RetryOnTimeout: wh.EffectiveRetryOnTimeout(global.RetryOnTimeout),
 		}
 		payload, err := buildPayload(email, wh)
-		snap := deliverySnapshot{Rule: rule, Payload: payload, Retry: retry}
+		snap := deliverySnapshot{Rule: rule, Signed: wh.SigningSecret != "", Payload: payload, Retry: retry}
+		// Keep the secret out of the database; it is resolved at send time so
+		// rotating it also applies to deliveries that are still retrying.
+		snap.Rule.Webhook.SigningSecret = ""
 		if err != nil {
 			snap.PayloadError = err.Error()
 		}
@@ -150,7 +154,10 @@ func (d *Dispatcher) runQueued(ctx context.Context, q *deliveryQueue, job *stora
 		result.Error = err.Error()
 	} else if snap.PayloadError != "" {
 		result.Error = snap.PayloadError
+	} else if secret, err := d.resolveSecret(&snap); err != nil {
+		result.Error = err.Error()
 	} else {
+		snap.Rule.Webhook.SigningSecret = secret
 		result.Attempts++
 		if job.Attempts > 0 {
 			metrics.WebhookRetriesTotal.WithLabelValues(job.RuleName).Inc()
@@ -208,4 +215,24 @@ func (d *Dispatcher) runQueued(ctx context.Context, q *deliveryQueue, job *stora
 	if q.notify != nil {
 		q.notify()
 	}
+}
+
+// SetSecretLookup sets how queued deliveries find the current signing secret
+// of a rule by name. Secrets are not stored in the queue.
+func (d *Dispatcher) SetSecretLookup(fn func(ruleName string) (string, bool)) {
+	d.secretLookup.Store(&fn)
+}
+
+// resolveSecret fails closed: a delivery that was signed when enqueued is never
+// sent unsigned.
+func (d *Dispatcher) resolveSecret(snap *deliverySnapshot) (string, error) {
+	if !snap.Signed {
+		return "", nil
+	}
+	if fn := d.secretLookup.Load(); fn != nil {
+		if secret, ok := (*fn)(snap.Rule.Name); ok && secret != "" {
+			return secret, nil
+		}
+	}
+	return "", fmt.Errorf("signing secret for rule %q is no longer available", snap.Rule.Name)
 }
