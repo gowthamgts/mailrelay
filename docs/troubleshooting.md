@@ -29,6 +29,15 @@ Work through these in order:
 
    For a batch of varied test emails (attachments, HTML, CC, forwarded mail), run [`scripts/test-emails.sh`](../scripts/test-emails.sh) with `SMTP_HOST` and `SMTP_PORT` set.
 
+## STARTTLS or certificate errors
+
+- **No STARTTLS advertised:** configure both `smtp.tls_cert` and `smtp.tls_key`, then restart to enable TLS. The certificate contents reload on each handshake after that.
+- **Startup or handshake fails:** check that the PEM certificate and key match, the full chain is present, and the process user can read both paths and traverse their directories. Certbot symlinks need access to `archive` as well as `live`; Docker needs both mounted. New handshakes read from disk, so fix permissions or replace the pair to recover without restarting.
+- **530 Must issue STARTTLS first:** `smtp.require_tls` is enabled. Use `swaks --tls`, or set `SMTP_TLS=1` for the batch script. A rejection at MAIL FROM has no message body to save in the UI.
+- **Certificate verification fails:** use a publicly trusted certificate for the MX hostname, with its full chain, and check its expiry. Test with `openssl s_client -starttls smtp -connect mx.example.com:25 -servername mx.example.com`.
+
+See [SMTP STARTTLS setup](self-hosting.md#smtp-starttls).
+
 ## The email shows as Dropped
 
 No rule matched. Open the email and compare its fields with your rule's conditions:

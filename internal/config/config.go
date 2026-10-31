@@ -116,6 +116,13 @@ func defaults() *models.AppConfig {
 }
 
 func validate(cfg *models.AppConfig) error {
+	if (cfg.SMTP.TLSCert == "") != (cfg.SMTP.TLSKey == "") {
+		return fmt.Errorf("smtp.tls_cert and smtp.tls_key must be set together")
+	}
+	if cfg.SMTP.RequireTLS && cfg.SMTP.TLSCert == "" {
+		return fmt.Errorf("smtp.require_tls requires smtp.tls_cert and smtp.tls_key")
+	}
+
 	if cfg.Webhook.Workers < 1 {
 		return fmt.Errorf("webhook.workers must be positive")
 	}

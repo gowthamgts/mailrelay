@@ -604,6 +604,60 @@ func containsStr(s, sub string) bool {
 	}())
 }
 
+func TestUI_EmailTransport(t *testing.T) {
+	h := newUIHarness(t)
+	for _, encrypted := range []bool{false, true} {
+		ar := &models.AuthResult{TLS: encrypted, SPF: models.AuthPass, DKIM: models.AuthNone, DMARC: models.AuthNone, ARC: models.AuthNone}
+		record := &models.EmailRecord{
+			Subject: fmt.Sprintf("TLS=%v", encrypted), EnvelopeFrom: "sender@example.com", EnvelopeTo: []string{"relay@example.com"},
+			Status: models.EmailStatusDropped, AuthResult: ar,
+			ParsedEmail: &models.ParsedEmail{Subject: fmt.Sprintf("TLS=%v", encrypted), TextBody: "Transport test", AuthResult: ar},
+		}
+		if err := h.store.SaveEmail(context.Background(), record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	browser := pwSetup(t)
+	for _, width := range []int{1280, 375} {
+		for _, encrypted := range []bool{false, true} {
+			t.Run(fmt.Sprintf("width=%d/tls=%v", width, encrypted), func(t *testing.T) {
+				page := newPage(t, browser)
+				if err := page.SetViewportSize(width, 900); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := page.Goto(h.url("/")); err != nil {
+					t.Fatal(err)
+				}
+				row := waitForSelector(t, page, fmt.Sprintf("tr:has-text('TLS=%v')", encrypted))
+				if err := row.Click(); err != nil {
+					t.Fatal(err)
+				}
+				panel := waitForSelector(t, page, "#modal-panel")
+				if _, err := panel.Evaluate("el => Promise.all(el.getAnimations().map(a => a.finished))", nil); err != nil {
+					t.Fatal(err)
+				}
+				badge := panel.Locator("div").Filter(playwright.LocatorFilterOptions{Has: page.Locator("span:text-is('Transport')")}).Last()
+				expected := "Plaintext"
+				if encrypted {
+					expected = "TLS"
+				}
+				text, err := badge.InnerText()
+				if err != nil || !containsStr(text, expected) {
+					t.Fatalf("transport badge = %q, %v, want %s", text, err, expected)
+				}
+				visible, err := badge.IsVisible()
+				if err != nil || !visible {
+					t.Fatalf("badge visible = %v, %v", visible, err)
+				}
+				bounds, err := badge.BoundingBox()
+				if err != nil || bounds == nil || bounds.X < 0 || bounds.X+bounds.Width > float64(width) {
+					t.Fatalf("badge outside viewport: %+v, %v", bounds, err)
+				}
+			})
+		}
+	}
+}
+
 // Replay returns a queued delivery immediately and the list updates on completion.
 func TestUI_PersistentQueueReplay(t *testing.T) {
 	ctx := context.Background()

@@ -6,6 +6,7 @@ mailrelay exposes Prometheus metrics at `/metrics` on the HTTP server (default `
 
 | Metric                                             | Type      | Labels  | Description                                        |
 | -------------------------------------------------- | --------- | ------- | -------------------------------------------------- |
+| `mailrelay_smtp_sessions_total` | counter | `transport` | Sessions begun (`tls` or `plaintext`); STARTTLS starts a new TLS session after the initial plaintext session |
 | `mailrelay_smtp_connections_total`                 | counter   | —       | SMTP connections accepted                          |
 | `mailrelay_smtp_emails_received_total`             | counter   | —       | Emails successfully received                       |
 | `mailrelay_smtp_recipients_rejected_total`         | counter   | —       | Recipients rejected by `allowed_recipients` filter |
