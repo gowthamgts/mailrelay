@@ -101,3 +101,39 @@ func TestRulesTransfer(t *testing.T) {
 		t.Fatal("empty replace did not clear rules")
 	}
 }
+
+func TestRulesImportDatabaseFailures(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "rules.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	original := rules.TransferRule{Name: "original", Enabled: true, Webhook: models.WebhookConfig{URL: "https://example.com"}}
+	if err := s.ImportRules(ctx, []rules.TransferRule{original}, false); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.ListRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`CREATE TRIGGER reject_delete BEFORE DELETE ON rules BEGIN SELECT RAISE(ABORT, 'deletion denied'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ImportRules(ctx, []rules.TransferRule{}, true); err == nil {
+		t.Fatal("expected deletion failure")
+	}
+	after, err := s.ListRules(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("failed replace changed existing rules")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ImportRules(ctx, []rules.TransferRule{original}, false); err == nil {
+		t.Fatal("expected closed database failure")
+	}
+}
