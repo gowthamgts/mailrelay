@@ -88,6 +88,7 @@
           data-rule-name="{{.Name}}"
           data-rule-enabled="{{.Enabled}}"
           data-rule-match='{{matchConfigJSON .Match}}'
+          data-rule-signed="{{if .Webhook.SigningSecret}}true{{else}}false{{end}}"
           data-rule-webhook-url="{{.Webhook.URL}}"
           data-rule-webhook-method="{{.Webhook.Method}}"
           data-rule-webhook-headers="{{headersToText .Webhook.Headers}}"
@@ -265,6 +266,16 @@
                   </div>
                   <div id="test-webhook-result" class="mt-1.5 text-xs hidden"></div>
                 </div>
+              </div>
+              <div>
+                <input type="hidden" id="rule_id" name="rule_id">
+                <label for="signing_secret" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Signing secret</label>
+                <div class="flex gap-2">
+                  <input type="password" id="signing_secret" name="signing_secret" autocomplete="new-password" class="input-field w-full min-w-0 rounded-lg border border-black/[0.08] dark:border-white/[0.07] bg-white dark:bg-white/[0.04] px-3 h-9 text-sm dark:text-zinc-200 placeholder:text-muted-foreground dark:placeholder:text-zinc-600" aria-describedby="signing-secret-help">
+                  <button type="button" onclick="generateSigningSecret()" class="shrink-0 rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 h-9 text-xs font-medium text-muted-foreground dark:text-zinc-400 hover:bg-muted dark:hover:bg-zinc-700 shadow-sm transition-all btn-press">Generate</button>
+                </div>
+                <p id="signing-secret-help" class="text-xs text-muted-foreground dark:text-zinc-400 mt-1.5">Optional HMAC-SHA256 signing. Copy a new secret before saving; saved secrets are hidden.</p>
+                <label id="clear-signing-label" class="hidden text-xs text-muted-foreground dark:text-zinc-400 mt-2"><input type="checkbox" id="clear_signing_secret" name="clear_signing_secret" onchange="document.getElementById('signing_secret').disabled = this.checked"> Clear saved secret (disable signing)</label>
               </div>
               <div>
                 <label for="webhook_headers" class="block text-xs font-medium text-muted-foreground dark:text-zinc-400 mb-1.5">Headers <span class="text-muted-foreground dark:text-zinc-500 font-normal">(one per line, Key: Value)</span></label>
@@ -472,6 +483,7 @@
         name: el.dataset.ruleName,
         mode: matchData.mode || 'all',
         conditions: conds,
+        signed: el.dataset.ruleSigned === "true",
         webhookUrl: el.dataset.ruleWebhookUrl,
         webhookMethod: el.dataset.ruleWebhookMethod,
         webhookHeaders: el.dataset.ruleWebhookHeaders,
@@ -495,6 +507,11 @@
       // Reset form
       form.reset();
       clearConditions();
+      document.getElementById('rule_id').value = editData ? editData.id || '' : '';
+      document.getElementById('signing_secret').type = 'password';
+      document.getElementById('signing_secret').disabled = false;
+      document.getElementById('signing_secret').placeholder = editData && editData.signed ? '•••••••• (leave blank to keep)' : 'Leave blank for unsigned requests';
+      document.getElementById('clear-signing-label').classList.toggle('hidden', !(editData && editData.signed));
 
       // Reset advanced section
       document.getElementById('advanced-section').classList.add('hidden');
@@ -1087,6 +1104,18 @@
       return (n / 1024).toFixed(1) + ' KB';
     }
 
+    function generateSigningSecret() {
+      var bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      var input = document.getElementById('signing_secret');
+      input.disabled = false;
+      document.getElementById('clear_signing_secret').checked = false;
+      input.type = 'text';
+      input.value = Array.from(bytes, function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+      input.focus();
+      input.select();
+    }
+
     function testWebhook() {
       var url = document.getElementById('webhook_url').value.trim();
       var method = document.getElementById('webhook_method').value;
@@ -1103,7 +1132,7 @@
       btn.innerHTML = '<svg class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Testing...';
       resultDiv.classList.add('hidden');
 
-      var formData = new FormData();
+      var formData = new FormData(document.getElementById("rule-form"));
       formData.append('webhook_url', url);
       formData.append('webhook_method', method);
       formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
@@ -1146,6 +1175,7 @@
         name: '{{.EditRule.Name}}',
         mode: matchData.mode || 'all',
         conditions: conds,
+        signed: {{if .EditRule.Webhook.SigningSecret}}true{{else}}false{{end}},
         webhookUrl: '{{.EditRule.Webhook.URL}}',
         webhookMethod: '{{.EditRule.Webhook.Method}}',
         webhookHeaders: '{{headersToText .EditRule.Webhook.Headers}}',

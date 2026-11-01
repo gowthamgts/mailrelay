@@ -2,8 +2,12 @@ package webhook
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -520,4 +524,102 @@ func TestQueueWorkerStorageFailures(t *testing.T) {
 	q := &deliveryQueue{store: s, stop: make(chan struct{})}
 	d.now = func() time.Time { close(q.stop); return time.Now() }
 	d.work(context.Background(), q)
+}
+
+func TestQueueSigning(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "queue.db")
+	s, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	type hit struct {
+		sig, ts, id string
+		body        []byte
+	}
+	hits := make(chan hit, 4)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		hits <- hit{r.Header.Get("X-Mailrelay-Signature"), r.Header.Get("X-Mailrelay-Timestamp"), r.Header.Get("X-Mailrelay-Delivery"), b}
+		if calls.Add(1) == 1 {
+			w.WriteHeader(503)
+			return
+		}
+	}))
+	defer server.Close()
+	secret := atomic.Value{}
+	secret.Store("old-secret")
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 2, InitialWait: 50 * time.Millisecond, MaxWait: 50 * time.Millisecond, Timeout: time.Second, RetryOnTimeout: true}, "test")
+	d.SetSecretLookup(func(string) (string, bool) { return secret.Load().(string), true })
+	id := saveQueueEmail(t, s)
+	rule := models.Rule{Name: "signed", Webhook: models.WebhookConfig{URL: server.URL, SigningSecret: "old-secret"}}
+	if err := d.Enqueue(ctx, s, id, &models.ParsedEmail{Subject: "x"}, []models.Rule{rule}); err != nil {
+		t.Fatal(err)
+	}
+	// The secret must not be stored in the queue.
+	var stored int
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rawDB.Close()
+	if err := rawDB.QueryRow(`SELECT COUNT(*) FROM delivery_queue WHERE snapshot LIKE '%old-secret%'`).Scan(&stored); err != nil || stored != 0 {
+		t.Fatalf("secret persisted: %d, %v", stored, err)
+	}
+	secret.Store("new-secret") // rotated before the first attempt
+	if err := d.StartQueue(s, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer stopQueue(t, d)
+	var first hit
+	for i := 0; i < 2; i++ {
+		select {
+		case h := <-hits:
+			mac := hmac.New(sha256.New, []byte("new-secret"))
+			mac.Write([]byte(h.ts + "."))
+			mac.Write(h.body)
+			if want := "sha256=" + hex.EncodeToString(mac.Sum(nil)); h.sig != want {
+				t.Fatalf("attempt %d signature %q, want %q", i+1, h.sig, want)
+			}
+			if i == 0 {
+				first = h
+			} else if h.id != first.id || h.id == "" {
+				t.Fatalf("delivery id changed across retries: %q vs %q", first.id, h.id)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for attempt")
+		}
+	}
+}
+
+func TestQueueSigningSecretUnavailable(t *testing.T) {
+	ctx := context.Background()
+	s, err := storage.Open(filepath.Join(t.TempDir(), "queue.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer server.Close()
+	d := NewDispatcher(models.RetryConfig{MaxRetries: 1, InitialWait: time.Millisecond, MaxWait: time.Millisecond, Timeout: time.Second}, "test")
+	d.SetSecretLookup(func(string) (string, bool) { return "", false }) // rule deleted
+	id := saveQueueEmail(t, s)
+	rule := models.Rule{Name: "gone", Webhook: models.WebhookConfig{URL: server.URL, SigningSecret: "s"}}
+	if err := d.Enqueue(ctx, s, id, &models.ParsedEmail{}, []models.Rule{rule}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.StartQueue(s, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer stopQueue(t, d)
+	awaitQueue(t, func() bool {
+		rows, _ := s.GetDeliveriesForEmail(ctx, id)
+		return len(rows) == 1 && rows[0].Status == "error" && strings.Contains(rows[0].ErrorMessage, "signing secret")
+	})
+	if hits.Load() != 0 {
+		t.Fatalf("unsigned request sent: %d", hits.Load())
+	}
 }

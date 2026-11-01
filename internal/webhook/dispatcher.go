@@ -3,6 +3,9 @@ package webhook
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,12 +14,14 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"text/template"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gowthamgts/mailrelay/internal/metrics"
 	"github.com/gowthamgts/mailrelay/internal/models"
 )
@@ -28,6 +33,7 @@ type Dispatcher struct {
 	retry        models.RetryConfig
 	userAgent    string
 	allowPrivate atomic.Bool
+	secretLookup atomic.Pointer[func(string) (string, bool)]
 	queue        *deliveryQueue
 	now          func() time.Time
 }
@@ -94,6 +100,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 		return result
 	}
 
+	deliveryID := uuid.NewString()
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		result.Attempts = attempt + 1
@@ -118,7 +125,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 		start := time.Now()
 		metrics.WebhookInFlight.Inc()
 		var respBody string
-		respBody, lastErr = d.send(ctx, rule, payload, timeout)
+		respBody, lastErr = d.send(ctx, rule, payload, timeout, deliveryID)
 		metrics.WebhookInFlight.Dec()
 		metrics.WebhookDurationSeconds.WithLabelValues(rule.Name).Observe(time.Since(start).Seconds())
 
@@ -176,7 +183,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, email *models.ParsedEmail,
 	return result
 }
 
-func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte, timeout time.Duration) (string, error) {
+func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte, timeout time.Duration, deliveryID string) (string, error) {
 	method := rule.Webhook.Method
 	if method == "" {
 		method = http.MethodPost
@@ -208,7 +215,9 @@ func (d *Dispatcher) send(ctx context.Context, rule models.Rule, payload []byte,
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := d.client.Do(req)
+	setSigningHeaders(req, payload, rule.Webhook.SigningSecret, deliveryID)
+
+	resp, err := d.do(req, rule.Webhook.SigningSecret != "")
 	if err != nil {
 		return "", fmt.Errorf("sending request: %w", err)
 	}
@@ -406,7 +415,7 @@ type TestResult struct {
 // TestConnectivity sends a lightweight HTTP request to check if a webhook URL
 // is reachable. Returns the response status, content type and body (capped at
 // maxTestResponseBody), or any error.
-func (d *Dispatcher) TestConnectivity(ctx context.Context, url, method string) (TestResult, error) {
+func (d *Dispatcher) TestConnectivity(ctx context.Context, url, method string, signingSecret ...string) (TestResult, error) {
 	testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -421,7 +430,11 @@ func (d *Dispatcher) TestConnectivity(ctx context.Context, url, method string) (
 	req.Header.Set("User-Agent", d.userAgent)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := d.client.Do(req)
+	if len(signingSecret) > 0 {
+		setSigningHeaders(req, []byte("{}"), signingSecret[0], uuid.NewString())
+	}
+
+	resp, err := d.do(req, len(signingSecret) > 0 && signingSecret[0] != "")
 	if err != nil {
 		return TestResult{}, err
 	}
@@ -446,4 +459,28 @@ type webhookError struct {
 
 func (e *webhookError) Error() string {
 	return fmt.Sprintf("webhook returned status %d", e.statusCode)
+}
+
+// setSigningHeaders runs after custom headers so they cannot override the signature.
+func setSigningHeaders(req *http.Request, payload []byte, secret, deliveryID string) {
+	if secret == "" {
+		return
+	}
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp + "."))
+	mac.Write(payload)
+	req.Header.Set("X-Mailrelay-Timestamp", timestamp)
+	req.Header.Set("X-Mailrelay-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	req.Header.Set("X-Mailrelay-Delivery", deliveryID)
+}
+
+// Signed redirects could change the body or forward credentials to another host.
+func (d *Dispatcher) do(req *http.Request, signed bool) (*http.Response, error) {
+	if !signed {
+		return d.client.Do(req)
+	}
+	client := *d.client
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	return client.Do(req)
 }

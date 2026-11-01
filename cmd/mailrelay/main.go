@@ -100,6 +100,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	engine := rules.NewEngine()
 	dispatcher := webhook.NewDispatcher(cfg.Retry, version)
 	dispatcher.SetAllowPrivateNetworks(cfg.Webhook.AllowPrivateNetworks)
+	dispatcher.SetSecretLookup(engine.SigningSecret)
 	if cfg.Webhook.AllowPrivateNetworks {
 		slog.Info("webhooks may reach private and internal addresses (webhook.allow_private_networks)")
 	}

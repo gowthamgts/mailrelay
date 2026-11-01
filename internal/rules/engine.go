@@ -29,6 +29,18 @@ func (e *Engine) SetRules(rules []models.Rule) {
 	e.mu.Unlock()
 }
 
+// SigningSecret returns the current webhook signing secret of the named rule.
+func (e *Engine) SigningSecret(name string) (string, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, r := range e.rules {
+		if r.Name == name {
+			return r.Webhook.SigningSecret, true
+		}
+	}
+	return "", false
+}
+
 // Match returns all rules that match the given email.
 func (e *Engine) Match(email *models.ParsedEmail) []models.Rule {
 	metrics.RulesEvaluatedTotal.Inc()

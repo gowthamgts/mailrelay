@@ -100,10 +100,21 @@ Rules are created in the web UI and take effect immediately. Each rule has **con
 - **Patterns**: globs by default (`alerts@*`, `*.example.com`); wrap a pattern in slashes for a regex (`/^\[URGENT\]/`, or `/(?i)invoice/` to ignore case).
 - **Match all or any** of the conditions. A rule with no conditions matches every email.
 - Every matching rule fires, not just the first one.
+- Optionally set a **Signing secret** per rule (or click **Generate**) to authenticate requests with HMAC-SHA256. Saved secrets are masked; blank edits keep them, and **Clear saved secret** disables signing.
 - Each webhook can override the timeout and retry settings, and the **Test** button checks that the URL is reachable.
 - Webhooks can't reach private or internal addresses (localhost, your LAN, Docker networks, Tailscale, cloud metadata) unless you set `webhook.allow_private_networks: true`. Turn it on if your webhooks point at self-hosted services.
 
 ### Payload
+
+Signed requests include `X-Mailrelay-Timestamp` (Unix seconds),
+`X-Mailrelay-Signature: sha256=<hex digest>` and `X-Mailrelay-Delivery` (a UUID
+stable across automatic retries). The HMAC-SHA256 input is `<timestamp>.<raw body>`
+using the secret's literal UTF-8 bytes, including when generated as hex. The exact
+templated or default JSON bytes are signed, with a current timestamp on each
+attempt. Attempts within the same second can have the same signature. Test sends
+signed `{}` requests. With no secret, requests remain unsigned.
+See [receiver verification examples](docs/webhooks.md#verifying-signatures) for
+constant-time comparisons and a five-minute timestamp tolerance.
 
 With no template, the webhook receives the whole parsed email:
 

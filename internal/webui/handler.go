@@ -962,6 +962,7 @@ func (h *Handler) handleRuleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	existing.Name = rule.Name
 	existing.Match = rule.Match
+	rule.Webhook.SigningSecret = ruleSigningSecret(r, existing.Webhook.SigningSecret)
 	existing.Webhook = rule.Webhook
 
 	if err := h.store.UpdateRule(r.Context(), existing); err != nil {
@@ -1034,7 +1035,16 @@ func (h *Handler) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.dispatcher.TestConnectivity(r.Context(), webhookURL, method)
+	secret := ruleSigningSecret(r, "")
+	if id := r.FormValue("rule_id"); id != "" {
+		existing, err := h.store.GetRule(r.Context(), id)
+		if err != nil {
+			http.Error(w, "Rule not found", http.StatusNotFound)
+			return
+		}
+		secret = ruleSigningSecret(r, existing.Webhook.SigningSecret)
+	}
+	res, err := h.dispatcher.TestConnectivity(r.Context(), webhookURL, method, secret)
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": err.Error(), "status_code": 0})
@@ -1095,6 +1105,7 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 		Method:          method,
 		Headers:         headers,
 		PayloadTemplate: payloadTemplate,
+		SigningSecret:   ruleSigningSecret(r, ""),
 	}
 
 	// Parse optional per-webhook overrides.
@@ -1235,4 +1246,15 @@ func computeStatus(results []models.DeliveryResult) models.EmailStatus {
 	default:
 		return models.EmailStatusFailed
 	}
+}
+
+// Blank edits preserve the stored secret; clearing is always explicit.
+func ruleSigningSecret(r *http.Request, existing string) string {
+	if r.FormValue("clear_signing_secret") == "on" {
+		return ""
+	}
+	if secret := r.FormValue("signing_secret"); secret != "" {
+		return secret
+	}
+	return existing
 }

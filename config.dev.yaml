@@ -41,6 +41,8 @@ retry:
   timeout: 10s
   retry_on_timeout: true
 
+# Per-rule signing_secret is stored in the rules database, configured in the UI.
+# Empty = unsigned. Generate a secret in the rule editor; see docs/webhooks.md.
 webhook:
   workers: 4 # maximum concurrent deliveries; pending retries survive restarts
   shutdown_timeout: 30s # allow in-flight requests to finish before leaving them pending
