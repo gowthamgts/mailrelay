@@ -211,6 +211,16 @@ docker run --rm -v mailrelay_data:/data -v "$PWD":/backup alpine \
 sqlite3 /var/lib/mailrelay/mailrelay.db ".backup /var/backups/mailrelay.db"
 ```
 
-Back up `emails/` too if you want to be able to replay old mail. Rules are the part that's hard to recreate, and they're in the database.
+Back up `emails/` too if you want to be able to replay old mail. Rules are included in the database backup. You can also back up or migrate only rules with the commands below.
+
+**Rules backups and migration.** Export from **Rules → Import / export rules** or run:
+
+```bash
+mailrelay -config /etc/mailrelay/config.yaml -export-rules rules-backup.yaml
+# On the destination, with its own database path in config:
+mailrelay -config /etc/mailrelay/config.yaml -import-rules rules-backup.yaml
+```
+
+The CLI reads the configured `webui.db_path`, creates export files privately (`0600`), and refuses to overwrite an existing file. Export to `-` for stdout or use a `.json` filename for JSON. Files include all webhook credentials; protect them like the database backup. Rule-only exports contain no emails, deliveries or global settings. Imports merge exact names by default; add `-replace` to remove rules absent from the backup. Validation failures leave all existing rules intact. Stop mailrelay before CLI imports and restart afterwards to load the new rules. UI imports provide a preview and reload rules immediately. For GitOps-style deployments, keep a versioned rules file with credentials supplied securely, then run the import command before starting the service; automatic file sync is not supported. See [the example](../rules.example.yaml).
 
 **Upgrades.** Back up, change the image tag (or replace the binary), and restart. The database schema updates itself on startup. Read the release notes before jumping several versions.

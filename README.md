@@ -94,7 +94,7 @@ Each queued delivery keeps its payload, webhook configuration and effective retr
 
 ## Rules
 
-Rules are created in the web UI and take effect immediately. Each rule has **conditions** and a **webhook**.
+Rules can be edited or imported in the web UI and take effect immediately. Each rule has **conditions** and a **webhook**.
 
 - **Fields**: From, To, CC, Subject, Body, any header, the SMTP envelope (`MAIL FROM` / `RCPT TO`), and the domain of each address.
 - **Patterns**: globs by default (`alerts@*`, `*.example.com`); wrap a pattern in slashes for a regex (`/^\[URGENT\]/`, or `/(?i)invoice/` to ignore case).
@@ -103,6 +103,24 @@ Rules are created in the web UI and take effect immediately. Each rule has **con
 - Optionally set a **Signing secret** per rule (or click **Generate**) to authenticate requests with HMAC-SHA256. Saved secrets are masked; blank edits keep them, and **Clear saved secret** disables signing.
 - Each webhook can override the timeout and retry settings, and the **Test** button checks that the URL is reachable.
 - Webhooks can't reach private or internal addresses (localhost, your LAN, Docker networks, Tailscale, cloud metadata) unless you set `webhook.allow_private_networks: true`. Turn it on if your webhooks point at self-hosted services.
+
+### Import and export
+
+Open **Rules → Import / export rules** to download all rules as YAML or JSON, or upload a file. Preview shows rules that will be created, updated or unchanged, including which settings change. **Merge by name** (default) updates exact, case-sensitive names and keeps other rules. **Replace all** removes rules absent from the file; an empty list clears all rules. Review deletions before applying.
+
+Files include enabled state, position, conditions and the complete webhook configuration. Positions are preserved (the engine processes lower positions first). Imports validate the entire file with the same validation as the editor, then apply in one database transaction. Duplicate names, unknown keys, invalid patterns, URLs and templates are rejected. The file limit is 2 MiB. See [`rules.example.yaml`](rules.example.yaml) for the version 1 format.
+
+Exports **include secrets**: URLs, headers and templates may contain credentials. The file carries a sensitivity warning; keep backups private and remove credentials before committing to Git. Preview lists changed setting names without displaying their values.
+
+```bash
+mailrelay -config config.yaml -export-rules rules.yaml
+mailrelay -config config.yaml -export-rules rules.json  # JSON by extension
+mailrelay -config config.yaml -export-rules -           # YAML to stdout
+mailrelay -config config.yaml -import-rules rules.yaml  # merge by exact name
+mailrelay -config config.yaml -import-rules rules.yaml -replace
+```
+
+CLI commands use `webui.db_path` from config/environment and exit without starting servers. Exports create a new file with mode `0600` and refuse to overwrite existing files. Use a new filename for each backup. CLI imports affect a running server after restart; UI imports take effect immediately. For deployment automation, import before starting mailrelay. There is no automatic file sync or `rules_file` option.
 
 ### Payload
 

@@ -78,6 +78,22 @@
         </button>
       </div>
 
+      <details class="card p-4 mb-4">
+        <summary class="cursor-pointer text-sm font-medium">Import / export rules</summary>
+        <div class="mt-3 space-y-3 text-sm">
+          <p class="text-muted-foreground dark:text-zinc-400">Exports include all settings and may contain secrets in URLs, headers and templates. Store files securely.</p>
+          <div class="flex flex-wrap gap-3"><a class="inline-flex items-center rounded-lg border border-border dark:border-zinc-700 hover:bg-muted dark:hover:bg-zinc-800 px-3 py-2" href="/rules/export">Export YAML</a><a class="inline-flex items-center rounded-lg border border-border dark:border-zinc-700 hover:bg-muted dark:hover:bg-zinc-800 px-3 py-2" href="/rules/export?format=json">Export JSON</a></div>
+          <form id="import-form" class="space-y-3">
+            <div><label for="rules-file" class="block mb-1">Rules file (YAML or JSON, up to 2 MiB)</label><input id="rules-file" type="file" accept=".yaml,.yml,.json" required class="block max-w-full"></div>
+            <div><label for="import-mode" class="block mb-1">Import mode</label><select id="import-mode" class="rounded-lg border border-border dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2"><option value="merge">Merge by name</option><option value="replace">Replace all</option></select></div>
+            <p class="text-muted-foreground dark:text-zinc-400">Merge updates exact matching names and keeps other rules. Replace removes rules absent from the file. Imported positions are preserved.</p>
+            <button id="preview-import" class="inline-flex items-center rounded-lg border border-border dark:border-zinc-700 hover:bg-muted dark:hover:bg-zinc-800 px-3 py-2" type="submit">Preview import</button>
+            <div id="import-status" role="status" class="whitespace-pre-wrap break-words max-h-64 overflow-auto"></div>
+            <button id="apply-import" class="hidden btn-primary rounded-lg px-3 py-2" type="button">Apply import</button>
+          </form>
+        </div>
+      </details>
+
       {{/* Rules List */}}
       {{if .Rules}}
       <div class="card divide-y divide-black/[0.05] dark:divide-white/[0.05]">
@@ -1160,6 +1176,44 @@
           btn.innerHTML = '<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.981 0 13.789M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg> Test';
         });
     }
+
+    var importForm = document.getElementById('import-form');
+    var importApply = document.getElementById('apply-import');
+    var importStatus = document.getElementById('import-status');
+    var importPreview = null;
+    function resetImportPreview() { importPreview = null; importApply.classList.add('hidden'); importStatus.textContent = ''; }
+    document.getElementById('rules-file').addEventListener('change', resetImportPreview);
+    document.getElementById('import-mode').addEventListener('change', resetImportPreview);
+    async function sendImport(data, mode, apply) {
+      var resp = await fetch('/rules/import?mode=' + mode + (apply ? '&apply=true' : ''), {
+        method: 'POST', headers: { 'X-CSRF-Token': '{{.CSRFToken}}' }, body: data
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      return resp.json();
+    }
+    importForm.addEventListener('submit', async function(e) {
+      e.preventDefault(); resetImportPreview();
+      var button = document.getElementById('preview-import'); button.disabled = true;
+      try {
+        var file = document.getElementById('rules-file').files[0];
+        if (!file) throw new Error('Choose a rules file first.');
+        if (file.size > 2 * 1024 * 1024) throw new Error('Rules file exceeds 2 MiB.');
+        var data = await file.text(); var mode = document.getElementById('import-mode').value;
+        var changes = await sendImport(data, mode, false);
+        importStatus.textContent = changes.length ? changes.map(function(c) { return c.action + ': ' + c.name + (c.fields ? ' (' + c.fields.join(', ') + ')' : ''); }).join('\n') : 'The file contains no rules. Replace all will leave no rules.';
+        importPreview = {data: data, mode: mode};
+        importApply.textContent = mode === 'replace' ? 'Replace all rules' : 'Apply import';
+        importApply.classList.remove('hidden');
+      } catch (err) { importStatus.textContent = err.message; }
+      finally { button.disabled = false; }
+    });
+    importApply.addEventListener('click', async function() {
+      if (!importPreview) return;
+      importApply.disabled = true;
+      try { await sendImport(importPreview.data, importPreview.mode, true); window.location.href = '/rules'; }
+      catch (err) { importStatus.textContent = err.message; }
+      finally { importApply.disabled = false; }
+    });
 
     // Initialize conditions hint
     updateConditionsHint();
