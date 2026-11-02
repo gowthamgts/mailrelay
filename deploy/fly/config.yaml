@@ -1,0 +1,21 @@
+# mailrelay config for Fly.io. Shipped into the Machine by fly.toml's [[files]].
+# See config.example.yaml in the repo root for every option.
+#
+# smtp.addr, http.addr, webui.db_path and webui.raw_email_dir are set by
+# fly.toml and the image, so they're left out here.
+
+smtp:
+  domain: "mx.example.com" # the hostname your MX record points at
+  allowed_recipients: # only accept mail to these addresses
+    - "*@alerts.example.com"
+
+auth: # "off", "log" or "enforce". Start with log and look at real mail first.
+  spf: log
+  dkim: log
+  dmarc: log
+
+webhook:
+  allow_private_networks: false # true only if webhooks target other apps on your Fly private network
+
+webui:
+  retention_days: 7
