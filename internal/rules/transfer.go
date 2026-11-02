@@ -17,13 +17,7 @@ import (
 )
 
 // TransferRule contains portable rule settings, without database identity or timestamps.
-type TransferRule struct {
-	Name     string               `json:"name"`
-	Enabled  bool                 `json:"enabled"`
-	Position int                  `json:"position"`
-	Match    models.MatcherConfig `json:"match"`
-	Webhook  models.WebhookConfig `json:"webhook"`
-}
+type TransferRule = models.TransferRule
 
 type RulesFile struct {
 	Version   int            `json:"version"`
@@ -32,7 +26,7 @@ type RulesFile struct {
 }
 
 func Portable(r models.RuleRecord) TransferRule {
-	return TransferRule{r.Name, r.Enabled, r.Position, r.Match, r.Webhook}
+	return TransferRule{Name: r.Name, Enabled: r.Enabled, Position: r.Position, Match: r.Match, Webhook: r.Webhook}
 }
 
 func Export(records []models.RuleRecord, format string) ([]byte, error) {

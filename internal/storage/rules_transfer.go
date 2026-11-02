@@ -6,15 +6,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gowthamgts/mailrelay/internal/rules"
+	"github.com/gowthamgts/mailrelay/internal/models"
 )
 
-// ImportRules validates every rule before applying the entire file atomically.
+// ImportRules applies the entire file atomically; callers must validate items first
+// (rules.Decode and rules.ValidateImport).
 // Merge preserves the identity of existing rules, matching exact names.
-func (s *Store) ImportRules(ctx context.Context, items []rules.TransferRule, replace bool) error {
-	if err := rules.ValidateImport(items); err != nil {
-		return err
-	}
+func (s *Store) ImportRules(ctx context.Context, items []models.TransferRule, replace bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
