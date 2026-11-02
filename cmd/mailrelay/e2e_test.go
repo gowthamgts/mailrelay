@@ -1024,6 +1024,10 @@ func newTestHarnessWithStore(t *testing.T, cfg models.SMTPConfig, authCfg models
 		RetryOnTimeout: true,
 	}, "dev")
 	ctx, cancel := context.WithCancel(context.Background())
+	if err := dispatcher.StartQueue(store, 2, nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dispatcher.Shutdown(context.Background()) })
 	handler := buildHandler(engine, dispatcher, store, nil, "")
 	srv := smtpserver.NewServer(ctx, cfg, authCfg, handler)
 	srv.SetRejectionHandler(buildRejectionHandler(store, nil, ""))
@@ -1832,4 +1836,55 @@ func TestE2E_StoreTracksDroppedEmail(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 	}
 	t.Fatal("timed out waiting for email with dropped status in DB")
+}
+
+// SMTP acknowledges durable queue entries without waiting for the receiver.
+func TestE2E_PersistentQueueAcknowledgement(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { close(entered); <-release; w.WriteHeader(204) }))
+	defer server.Close()
+	defer close(release)
+	h, store := newTestHarnessWithStore(t, smtpCfg(t), models.AuthConfig{SPF: models.AuthModeOff, DKIM: models.AuthModeOff, DMARC: models.AuthModeOff})
+	h.engine.SetRules([]models.Rule{{Name: "durable", Webhook: models.WebhookConfig{URL: server.URL}}})
+	sent := make(chan error, 1)
+	go func() {
+		sent <- smtp.SendMail(h.smtpAddr, nil, "sender@example.com", []string{"to@example.com"}, []byte(rawMessage("sender@example.com", "to@example.com", "durable", "test")))
+	}()
+	select {
+	case err := <-sent:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SMTP waited for webhook")
+	}
+	emails, err := store.ListEmails(context.Background(), storage.EmailFilter{})
+	if err != nil || len(emails.Emails) != 1 {
+		t.Fatalf("persisted emails=%+v,%v", emails, err)
+	}
+	deliveries, err := store.GetDeliveriesForEmail(context.Background(), emails.Emails[0].ID)
+	if err != nil || len(deliveries) != 1 {
+		t.Fatalf("queue not persisted before 250: %+v,%v", deliveries, err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not send")
+	}
+}
+
+func TestE2E_QueuePersistenceFailure(t *testing.T) {
+	h, store := newTestHarnessWithStore(t, smtpCfg(t), models.AuthConfig{SPF: models.AuthModeOff, DKIM: models.AuthModeOff, DMARC: models.AuthModeOff})
+	// Stop workers before closing the database to simulate unavailable storage.
+	if err := h.dispatcher.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err := sendEmail(t, h.smtpAddr, "sender@example.com", []string{"to@example.com"}, rawMessage("sender@example.com", "to@example.com", "failure", "test"))
+	if err == nil || !strings.Contains(err.Error(), "451") {
+		t.Fatalf("SMTP error=%v, want temporary 451", err)
+	}
 }

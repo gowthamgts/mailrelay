@@ -39,7 +39,7 @@ type Stats struct {
 }
 
 func Open(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
@@ -85,6 +85,16 @@ func migrate(db *sql.DB) error {
 
 	CREATE INDEX IF NOT EXISTS idx_deliveries_email_id ON deliveries(email_id);
 
+	CREATE TABLE IF NOT EXISTS delivery_queue (
+		delivery_id TEXT PRIMARY KEY REFERENCES deliveries(id) ON DELETE CASCADE,
+		batch_id TEXT NOT NULL,
+		email_id TEXT NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
+		snapshot TEXT NOT NULL,
+		next_attempt_at INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_delivery_queue_due ON delivery_queue(next_attempt_at);
+	CREATE INDEX IF NOT EXISTS idx_delivery_queue_email ON delivery_queue(email_id,batch_id);
+
 	CREATE TABLE IF NOT EXISTS rules (
 		id             TEXT PRIMARY KEY,
 		name           TEXT NOT NULL UNIQUE,
@@ -109,6 +119,7 @@ func migrate(db *sql.DB) error {
 
 	// Columns added after the first release; new databases already have them.
 	for _, stmt := range []string{
+		`ALTER TABLE emails ADD COLUMN delivery_batch TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE emails ADD COLUMN rejection_reason TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE deliveries ADD COLUMN response_body TEXT NOT NULL DEFAULT ''`,
 		// Header From/To, to distinguish them from envelope addresses.
@@ -152,8 +163,8 @@ func (s *Store) SaveEmail(ctx context.Context, record *models.EmailRecord) error
 
 func (s *Store) UpdateEmailStatus(ctx context.Context, id string, status models.EmailStatus) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE emails SET status = ? WHERE id = ?`,
-		string(status), id,
+		`UPDATE emails SET status = ? WHERE id = ? AND (? != 'dropped' OR NOT EXISTS (SELECT 1 FROM deliveries WHERE email_id=emails.id AND status IN ('pending','in_progress')))`,
+		string(status), id, string(status),
 	)
 	return err
 }
@@ -342,7 +353,7 @@ func (s *Store) GetExpiredEmailIDs(ctx context.Context, retentionDays int) ([]st
 	}
 	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id FROM emails WHERE received_at < ?`, cutoff)
+		`SELECT id FROM emails WHERE received_at < ? AND NOT EXISTS (SELECT 1 FROM delivery_queue q JOIN deliveries d ON d.id = q.delivery_id WHERE q.email_id = emails.id AND d.status IN ('pending', 'in_progress'))`, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -359,17 +370,33 @@ func (s *Store) GetExpiredEmailIDs(ctx context.Context, retentionDays int) ([]st
 	return ids, rows.Err()
 }
 
+// Cleanup deletes expired emails, preserving those with unfinished deliveries.
 func (s *Store) Cleanup(ctx context.Context, retentionDays int) (int64, error) {
+	ids, err := s.CleanupExpired(ctx, retentionDays)
+	return int64(len(ids)), err
+}
+
+// CleanupExpired returns only IDs actually deleted, so raw-file cleanup cannot
+// race with a replay that makes a previously expired email pending again.
+func (s *Store) CleanupExpired(ctx context.Context, retentionDays int) ([]string, error) {
 	if retentionDays <= 0 {
-		return 0, nil
+		return nil, nil
 	}
 	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM emails WHERE received_at < ?`, cutoff)
+	rows, err := s.db.QueryContext(ctx, `DELETE FROM emails WHERE received_at < ? AND NOT EXISTS (SELECT 1 FROM delivery_queue q JOIN deliveries d ON d.id=q.delivery_id WHERE q.email_id=emails.id AND d.status IN ('pending','in_progress')) RETURNING id`, cutoff)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return res.RowsAffected()
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // --- Rule CRUD ---
