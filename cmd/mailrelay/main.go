@@ -51,6 +51,9 @@ func main() {
 func run(ctx context.Context, args []string, stdout io.Writer) error {
 	flags := flag.NewFlagSet("mailrelay", flag.ContinueOnError)
 	configPath := flags.String("config", "config.yaml", "path to config file")
+	exportPath := flags.String("export-rules", "", "export rules to a file, or - for stdout, and exit (JSON for .json files)")
+	importPath := flags.String("import-rules", "", "import rules from a YAML or JSON file and exit")
+	replace := flags.Bool("replace", false, "replace all rules when importing (default: merge by name)")
 	showVersion := flags.Bool("version", false, "print version and exit")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -64,6 +67,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if *exportPath != "" || *importPath != "" || *replace {
+		return transferRules(ctx, cfg, *exportPath, *importPath, *replace, stdout)
 	}
 
 	logLevel := setupLogger(cfg.LogLevel, stdout)
