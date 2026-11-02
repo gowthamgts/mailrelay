@@ -41,10 +41,26 @@ changelog:
   sort: asc
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
+      - "^Merge "
       - "^chore:"
       - "^ci:"
+  # groups match on the leading verb of lowercase imperative subjects;
+  # the first matching group wins
+  groups:
+    - title: Documentation
+      regexp: '^docs?:|\bdocs?\b|^document\b'
+      order: 2
+    - title: Features
+      regexp: '^(feat:|(add|persist|publish|support|introduce|implement|allow|enable)\b)'
+      order: 0
+    - title: Bug fixes
+      regexp: '^(fix|prevent|resolve|correct|handle|restore)\b'
+      order: 1
+    - title: Tests
+      regexp: '^(cover|test)\b'
+      order: 3
+    - title: Other changes
+      order: 999
 
 dockers:
   - image_templates:
