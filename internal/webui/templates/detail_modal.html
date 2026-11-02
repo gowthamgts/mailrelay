@@ -82,6 +82,10 @@
       <div class="p-3 flex flex-wrap gap-2">
         {{$ar := .Email.AuthResult}}
         <div class="flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 px-2.5 py-1 bg-muted/30 dark:bg-zinc-800/50">
+          <span class="text-xs text-muted-foreground dark:text-zinc-500">Transport</span>
+          <span class="text-xs font-semibold {{if $ar.TLS}}text-emerald-600 dark:text-emerald-400{{else}}text-muted-foreground dark:text-zinc-400{{end}}">{{if $ar.TLS}}TLS{{else}}Plaintext{{end}}</span>
+        </div>
+        <div class="flex items-center gap-1.5 rounded-lg border border-border dark:border-zinc-700 px-2.5 py-1 bg-muted/30 dark:bg-zinc-800/50">
           <span class="text-xs text-muted-foreground dark:text-zinc-500">SPF</span>
           <span class="text-xs font-semibold {{if eq (printf "%s" $ar.SPF) "pass"}}text-emerald-600 dark:text-emerald-400{{else if eq (printf "%s" $ar.SPF) "fail"}}text-red-600 dark:text-red-400{{else}}text-muted-foreground dark:text-zinc-400{{end}}">{{$ar.SPF}}</span>
         </div>

@@ -18,7 +18,7 @@ nc -vz mx.example.com 25
 
 **Can't open port 25?** Keep your existing mailbox and forward to mailrelay instead. You still need *some* host that accepts port 25, but it can be one cheap VPS shared by everything. See [Forwarding instead of MX](#forwarding-instead-of-mx).
 
-**SMTP is unencrypted.** mailrelay doesn't support STARTTLS yet, so senders deliver in plain text. Mail between servers on the internet is often unencrypted anyway, but some senders flag it (Gmail shows a red "did not encrypt" warning on mail *it* sends to such servers). Don't route mail through mailrelay that you wouldn't send over plain SMTP.
+**SMTP encryption is optional.** Configure [STARTTLS](#smtp-starttls) with a certificate for your MX hostname to encrypt mail from senders that support it.
 
 ## DNS
 
@@ -51,6 +51,40 @@ If your mail already lives somewhere else, set up a forwarding rule there that s
 - **Cloudflare Email Routing:** add a custom address that routes to a destination address. You'll have to verify the destination the same way.
 
 Forwarded mail keeps the original From/To headers but has a different envelope. mailrelay shows both, and rules can match either. If you set the auth checks to `enforce`, read [Auth checks and forwarded mail](troubleshooting.md#auth-checks-and-forwarded-mail) first.
+
+## SMTP STARTTLS
+
+Obtain a certificate for the MX hostname, for example with [Certbot](https://eff-certbot.readthedocs.io/en/stable/using.html). The standalone HTTP challenge needs inbound port 80 free; use a DNS challenge or an existing web server plugin if that is unsuitable:
+
+```bash
+sudo certbot certonly --standalone -d mx.example.com
+sudo certbot renew --dry-run
+```
+
+Configure mailrelay with the full chain and private key:
+
+```yaml
+smtp:
+  domain: "mx.example.com"
+  tls_cert: "/etc/letsencrypt/live/mx.example.com/fullchain.pem"
+  tls_key: "/etc/letsencrypt/live/mx.example.com/privkey.pem"
+  require_tls: false
+```
+
+Set both paths or neither. With neither, SMTP stays plaintext. With both, mailrelay advertises STARTTLS and accepts TLS 1.2 or newer. Unreadable or invalid PEM files prevent startup. On every handshake it reads the pair again, following Certbot's renewed symlinks without a restart or SIGHUP. If a renewal leaves an unreadable or mismatched pair, new TLS handshakes fail until the files are fixed; existing connections continue.
+
+The `mailrelay` user needs directory traversal and read access to the certificate and key, including the symlink targets under `/etc/letsencrypt/archive`. Grant access using a restricted group and key mode `0640`; preserve it on renewal with a Certbot deploy hook if needed. See [Certbot file permissions](https://eff-certbot.readthedocs.io/en/stable/using.html#where-are-my-certificates). In Docker, mount the whole `/etc/letsencrypt` tree read-only at the same path (both `live` and `archive` are needed), and grant the container user access to the key.
+
+Leave `require_tls: false` for opportunistic delivery from the public internet. Setting it to `true` rejects `MAIL FROM` before STARTTLS with `530 5.7.0`; senders without TLS cannot deliver. STARTTLS alone does not prevent downgrade attacks. For supporting senders, [MTA-STS](https://www.rfc-editor.org/rfc/rfc8461) publishes an authenticated policy requiring TLS and a valid certificate for your MX hosts. Its DNS record and HTTPS policy must be hosted separately; mailrelay does not serve an MTA-STS policy.
+
+Verify the certificate and handshake:
+
+```bash
+openssl s_client -starttls smtp -connect mx.example.com:25 -servername mx.example.com
+SMTP_HOST=mx.example.com SMTP_PORT=25 SMTP_TLS=1 scripts/test-emails.sh
+```
+
+Email details show TLS or Plaintext beside the auth checks. Webhook payloads include `auth_result.tls`, and `mailrelay_smtp_sessions_total{transport="tls"}` counts TLS sessions.
 
 ## Install with Docker
 

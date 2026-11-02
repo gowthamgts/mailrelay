@@ -76,6 +76,7 @@ func parserForFile(p string) (koanf.Parser, error) {
 func defaults() *models.AppConfig {
 	return &models.AppConfig{
 		LogLevel: "info",
+		Webhook:  models.WebhookPolicy{Workers: 4, ShutdownTimeout: 30 * time.Second},
 		SMTP: models.SMTPConfig{
 			Addr:            "0.0.0.0:25",
 			MaxMessageBytes: 25 * 1024 * 1024, // 25 MB
@@ -115,6 +116,19 @@ func defaults() *models.AppConfig {
 }
 
 func validate(cfg *models.AppConfig) error {
+	if (cfg.SMTP.TLSCert == "") != (cfg.SMTP.TLSKey == "") {
+		return fmt.Errorf("smtp.tls_cert and smtp.tls_key must be set together")
+	}
+	if cfg.SMTP.RequireTLS && cfg.SMTP.TLSCert == "" {
+		return fmt.Errorf("smtp.require_tls requires smtp.tls_cert and smtp.tls_key")
+	}
+
+	if cfg.Webhook.Workers < 1 {
+		return fmt.Errorf("webhook.workers must be positive")
+	}
+	if cfg.Webhook.ShutdownTimeout <= 0 {
+		return fmt.Errorf("webhook.shutdown_timeout must be positive")
+	}
 	if cfg.WebUI.Enabled && cfg.WebUI.DBPath == "" {
 		return fmt.Errorf("webui.db_path is required when webui is enabled")
 	}

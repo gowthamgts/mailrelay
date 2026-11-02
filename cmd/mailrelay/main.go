@@ -107,6 +107,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	engine := rules.NewEngine()
 	dispatcher := webhook.NewDispatcher(cfg.Retry, version)
 	dispatcher.SetAllowPrivateNetworks(cfg.Webhook.AllowPrivateNetworks)
+	dispatcher.SetSecretLookup(engine.SigningSecret)
 	if cfg.Webhook.AllowPrivateNetworks {
 		slog.Info("webhooks may reach private and internal addresses (webhook.allow_private_networks)")
 	}
@@ -145,6 +146,23 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	var events *webui.EventBus
 	if uiHandler != nil {
 		events = uiHandler.Events
+	}
+
+	if store != nil {
+		var notify func()
+		if events != nil {
+			notify = events.Notify
+		}
+		if err := dispatcher.StartQueue(store, cfg.Webhook.Workers, notify); err != nil {
+			return fmt.Errorf("starting delivery queue: %w", err)
+		}
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Webhook.ShutdownTimeout)
+			defer cancel()
+			if err := dispatcher.Shutdown(shutdownCtx); err != nil {
+				slog.Warn("delivery queue shutdown", "error", err)
+			}
+		}()
 	}
 
 	handler := buildHandler(engine, dispatcher, store, events, cfg.WebUI.RawEmailDir)
@@ -254,18 +272,26 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	defer cancel()
 
 	slog.Info("shutting down...")
+	dispatcher.StopQueue()
+	queueCtx, queueCancel := context.WithTimeout(context.Background(), cfg.Webhook.ShutdownTimeout)
+	defer queueCancel()
+	queueDone := make(chan error, 1)
+	go func() { queueDone <- dispatcher.Shutdown(queueCtx) }()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("SMTP server shutdown error", "error", err)
 	}
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("HTTP server shutdown error", "error", err)
 	}
+	if err := <-queueDone; err != nil {
+		slog.Warn("delivery queue shutdown", "error", err)
+	}
 	slog.Info("mailrelay stopped")
 	return nil
 }
 
 func buildHandler(engine *rules.Engine, dispatcher *webhook.Dispatcher, store *storage.Store, events *webui.EventBus, rawEmailDir string) smtpserver.EmailHandler {
-	return func(ctx context.Context, email *models.ParsedEmail, rawData []byte) {
+	return func(ctx context.Context, email *models.ParsedEmail, rawData []byte) error {
 		var emailID string
 
 		if store != nil {
@@ -283,7 +309,7 @@ func buildHandler(engine *rules.Engine, dispatcher *webhook.Dispatcher, store *s
 				AuthResult:   email.AuthResult,
 			}
 			if err := store.SaveEmail(ctx, record); err != nil {
-				slog.Error("failed to save email record", "error", err)
+				return fmt.Errorf("saving email: %w", err)
 			}
 
 			if rawEmailDir != "" && len(rawData) > 0 {
@@ -305,7 +331,7 @@ func buildHandler(engine *rules.Engine, dispatcher *webhook.Dispatcher, store *s
 			if events != nil {
 				events.Notify()
 			}
-			return
+			return nil
 		}
 
 		slog.Info("rules matched",
@@ -314,33 +340,18 @@ func buildHandler(engine *rules.Engine, dispatcher *webhook.Dispatcher, store *s
 			"subject", email.Subject,
 		)
 
-		results := dispatcher.Dispatch(ctx, email, matched)
-
 		if store != nil {
-			for _, res := range results {
-				delivery := &models.DeliveryRecord{
-					EmailID:      emailID,
-					RuleName:     res.RuleName,
-					Status:       res.Status,
-					StatusCode:   res.StatusCode,
-					ErrorMessage: res.Error,
-					ResponseBody: res.ResponseBody,
-					Attempts:     res.Attempts,
-				}
-				if err := store.SaveDelivery(ctx, delivery); err != nil {
-					slog.Error("failed to save delivery record", "error", err)
-				}
+			if err := dispatcher.Enqueue(ctx, store, emailID, email, matched); err != nil {
+				return fmt.Errorf("enqueueing deliveries: %w", err)
 			}
-
-			newStatus := webui.ComputeStatus(results)
-			if err := store.UpdateEmailStatus(ctx, emailID, newStatus); err != nil {
-				slog.Error("failed to update email status", "id", emailID, "error", err)
-			}
+		} else {
+			go dispatcher.Dispatch(ctx, email, matched)
 		}
 
 		if events != nil {
 			events.Notify()
 		}
+		return nil
 	}
 }
 
@@ -412,21 +423,16 @@ func cleanupOnce(ctx context.Context, store *storage.Store, days int, rawEmailDi
 		return
 	}
 
-	var expiredIDs []string
-	if rawEmailDir != "" {
-		ids, err := store.GetExpiredEmailIDs(ctx, days)
-		if err != nil {
-			slog.Error("failed to get expired email IDs", "error", err)
-		} else {
-			expiredIDs = ids
-		}
-	}
-
-	deleted, err := store.Cleanup(ctx, days)
+	expiredIDs, err := store.CleanupExpired(ctx, days)
 	if err != nil {
 		slog.Error("cleanup failed", "error", err)
-	} else if deleted > 0 {
-		slog.Info("cleaned up old emails", "deleted", deleted)
+		return
+	}
+	if len(expiredIDs) > 0 {
+		slog.Info("cleaned up old emails", "deleted", len(expiredIDs))
+	}
+	if rawEmailDir == "" {
+		return
 	}
 
 	for _, id := range expiredIDs {
