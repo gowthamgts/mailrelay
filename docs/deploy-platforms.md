@@ -7,7 +7,6 @@ mailrelay needs one thing most app platforms don't offer: **inbound TCP on port 
 | [Fly.io](#flyio) | Yes | TCP services on any port, with a dedicated IPv4 (about $2/month) |
 | [Any VPS](#any-vps-with-cloud-init) (Hetzner, DigitalOcean Droplets, Vultr, Linode, ...) | Yes | You get a real IP; paste the cloud-init file when creating the server |
 | Render | No | Only ports 80 and 443 are open to the internet |
-| Railway | No | The TCP proxy picks a random public port, and inbound SMTP isn't allowed |
 | Heroku, Vercel, Netlify, DigitalOcean App Platform, Cloud Run | No | HTTP only |
 
 If you're stuck on an HTTP-only platform, run mailrelay on a small VPS or Fly instead, and keep your webhook receivers wherever they are.
