@@ -1,0 +1,61 @@
+# mailrelay on Fly.io. See docs/deploy-platforms.md for the full walkthrough:
+#
+#   fly launch --copy-config --no-deploy --ha=false
+#   fly ips allocate-v4        # dedicated IPv4: needed for port 25
+#   fly deploy --ha=false
+#
+# Keep a single Machine: rules and emails live in SQLite on one volume.
+
+[build]
+  image = "ghcr.io/gowthamgts/mailrelay:latest"
+
+# config.yaml next to this file holds the settings that need lists
+# (smtp.allowed_recipients, http.auth.providers). Edit it before deploying.
+[[files]]
+  guest_path = "/etc/mailrelay/config.yaml"
+  local_path = "config.yaml"
+
+[experimental]
+  cmd = ["-config", "/etc/mailrelay/config.yaml"]
+
+[env]
+  # The image runs as a non-root user, which can't bind port 25 in a Fly
+  # Machine. mailrelay listens on 2525 and Fly forwards port 25 to it.
+  MAILRELAY_SMTP__ADDR = "0.0.0.0:2525"
+
+[[mounts]]
+  source = "mailrelay_data"
+  destination = "/data"
+  initial_size = "1GB"
+
+# SMTP. Plain TCP has no hostname to route on, so this only works on a
+# dedicated IPv4 (fly ips allocate-v4); the shared IPv4 won't reach it.
+[[services]]
+  protocol = "tcp"
+  internal_port = 2525
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 25
+
+  [[services.tcp_checks]]
+    grace_period = "10s"
+    interval = "30s"
+    timeout = "5s"
+
+# The web UI (port 2623) is deliberately not published. Reach it with
+#   fly proxy 2623:2623
+# or add an [http_service] on 2623 after setting up http.auth in config.yaml.
+[checks.health]
+  type = "http"
+  port = 2623
+  path = "/healthz"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
