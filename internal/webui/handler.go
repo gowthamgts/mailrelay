@@ -340,6 +340,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("POST /settings", h.handleSettingsSave)
 	mux.HandleFunc("GET /rules", h.handleRulesList)
+	mux.HandleFunc("GET /rules/export", h.handleRulesExport)
+	mux.HandleFunc("POST /rules/import", h.handleRulesImport)
 	mux.HandleFunc("POST /rules", h.handleRuleCreate)
 	mux.HandleFunc("GET /rules/{id}/edit", h.handleRuleEditForm)
 	mux.HandleFunc("POST /rules/{id}", h.handleRuleUpdate)
@@ -459,26 +461,10 @@ func (h *Handler) handleReplay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results := h.dispatcher.Dispatch(r.Context(), email.ParsedEmail, matched)
-
-	for _, res := range results {
-		delivery := &models.DeliveryRecord{
-			EmailID:      id,
-			RuleName:     res.RuleName,
-			Status:       res.Status,
-			StatusCode:   res.StatusCode,
-			ErrorMessage: res.Error,
-			ResponseBody: res.ResponseBody,
-			Attempts:     res.Attempts,
-		}
-		if err := h.store.SaveDelivery(r.Context(), delivery); err != nil {
-			slog.Error("failed to save replay delivery", "error", err)
-		}
-	}
-
-	newStatus := computeStatus(results)
-	if err := h.store.UpdateEmailStatus(r.Context(), id, newStatus); err != nil {
-		slog.Error("failed to update email status", "id", id, "error", err)
+	if err := h.dispatcher.Enqueue(r.Context(), h.store, id, email.ParsedEmail, matched); err != nil {
+		slog.Error("failed to enqueue replay", "id", id, "error", err)
+		http.Error(w, "Failed to enqueue replay", http.StatusInternalServerError)
+		return
 	}
 
 	h.Events.Notify()
@@ -978,6 +964,7 @@ func (h *Handler) handleRuleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	existing.Name = rule.Name
 	existing.Match = rule.Match
+	rule.Webhook.SigningSecret = ruleSigningSecret(r, existing.Webhook.SigningSecret)
 	existing.Webhook = rule.Webhook
 
 	if err := h.store.UpdateRule(r.Context(), existing); err != nil {
@@ -1050,7 +1037,16 @@ func (h *Handler) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.dispatcher.TestConnectivity(r.Context(), webhookURL, method)
+	secret := ruleSigningSecret(r, "")
+	if id := r.FormValue("rule_id"); id != "" {
+		existing, err := h.store.GetRule(r.Context(), id)
+		if err != nil {
+			http.Error(w, "Rule not found", http.StatusNotFound)
+			return
+		}
+		secret = ruleSigningSecret(r, existing.Webhook.SigningSecret)
+	}
+	res, err := h.dispatcher.TestConnectivity(r.Context(), webhookURL, method, secret)
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": err.Error(), "status_code": 0})
@@ -1111,6 +1107,7 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 		Method:          method,
 		Headers:         headers,
 		PayloadTemplate: payloadTemplate,
+		SigningSecret:   ruleSigningSecret(r, ""),
 	}
 
 	// Parse optional per-webhook overrides.
@@ -1192,6 +1189,9 @@ func parseRuleForm(r *http.Request) (*models.RuleRecord, string) {
 		Webhook: wh,
 	}
 
+	if err := rules.Validate(rule); err != nil {
+		return rule, err.Error()
+	}
 	return rule, ""
 }
 
@@ -1251,4 +1251,15 @@ func computeStatus(results []models.DeliveryResult) models.EmailStatus {
 	default:
 		return models.EmailStatusFailed
 	}
+}
+
+// Blank edits preserve the stored secret; clearing is always explicit.
+func ruleSigningSecret(r *http.Request, existing string) string {
+	if r.FormValue("clear_signing_secret") == "on" {
+		return ""
+	}
+	if secret := r.FormValue("signing_secret"); secret != "" {
+		return secret
+	}
+	return existing
 }

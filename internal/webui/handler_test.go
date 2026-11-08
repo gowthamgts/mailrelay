@@ -3,7 +3,11 @@ package webui
 import (
 	"bufio"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -31,12 +35,14 @@ type testEnv struct {
 	store  *storage.Store
 	mux    *http.ServeMux
 	rawDir string
+	dbPath string
 }
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	store, err := storage.Open(filepath.Join(dir, "test.db"))
+	dbPath := filepath.Join(dir, "test.db")
+	store, err := storage.Open(dbPath)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -61,13 +67,18 @@ func newTestEnv(t *testing.T) *testEnv {
 			Timeout:     5 * time.Second,
 		},
 	}
-	h, err := NewHandler(store, rules.NewEngine(), webhook.NewDispatcher(cfg.Retry, "test"), rawDir, cfg)
+	dispatcher := webhook.NewDispatcher(cfg.Retry, "test")
+	if err := dispatcher.StartQueue(store, 2, nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dispatcher.Shutdown(context.Background()) })
+	h, err := NewHandler(store, rules.NewEngine(), dispatcher, rawDir, cfg)
 	if err != nil {
 		t.Fatalf("new handler: %v", err)
 	}
 	mux := http.NewServeMux()
 	h.Register(mux)
-	return &testEnv{h: h, store: store, mux: mux, rawDir: rawDir}
+	return &testEnv{h: h, store: store, mux: mux, rawDir: rawDir, dbPath: dbPath}
 }
 
 func (e *testEnv) do(t *testing.T, method, target string, form url.Values, htmx bool) *httptest.ResponseRecorder {
@@ -222,6 +233,14 @@ func TestReplay(t *testing.T) {
 		rec := e.do(t, "POST", "/emails/"+id+"/replay", nil, true)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d", rec.Code)
+		}
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			email, _ := e.store.GetEmail(context.Background(), id)
+			if email.Status == models.EmailStatusDelivered {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 		if hits.Load() != 1 {
 			t.Errorf("webhook hits = %d, want 1", hits.Load())
@@ -821,5 +840,158 @@ func TestTemplateFuncs(t *testing.T) {
 	}
 	if got := call("formatTime", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)); got != "Jan 02, 2026 03:04:05 UTC" {
 		t.Errorf("formatTime = %q", got)
+	}
+}
+
+func TestRuleSigningSecretLifecycle(t *testing.T) {
+	e := newTestEnv(t)
+	form := url.Values{"name": {"signed"}, "webhook_url": {"https://example.com"}, "signing_secret": {"private-secret"}}
+	if rec := e.do(t, "POST", "/rules", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatal(rec.Code)
+	}
+	records, err := e.store.ListRules(context.Background())
+	if err != nil || len(records) != 1 {
+		t.Fatalf("rules: %v %v", records, err)
+	}
+	id := records[0].ID
+	if records[0].Webhook.SigningSecret != "private-secret" {
+		t.Fatal("secret not saved")
+	}
+	page := e.do(t, "GET", "/rules", nil, false).Body.String()
+	if strings.Contains(page, "private-secret") || !strings.Contains(page, `data-rule-signed="true"`) {
+		t.Fatal("secret leaked or signed status missing")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Mailrelay-Signature") == "" {
+			t.Error("test did not use stored secret")
+		}
+	}))
+	defer srv.Close()
+	e.do(t, "POST", "/rules/test-webhook", url.Values{"webhook_url": {srv.URL}, "rule_id": {id}}, true)
+	for _, step := range []struct{ value, clear, want string }{{"", "", "private-secret"}, {"replacement", "", "replacement"}, {"", "on", ""}} {
+		form.Set("signing_secret", step.value)
+		form.Set("clear_signing_secret", step.clear)
+		if rec := e.do(t, "POST", "/rules/"+id, form, false); rec.Code != http.StatusSeeOther {
+			t.Fatal(rec.Code)
+		}
+		record, err := e.store.GetRule(context.Background(), id)
+		if err != nil || record.Webhook.SigningSecret != step.want {
+			t.Fatalf("secret = %+v, err %v", record, err)
+		}
+	}
+}
+
+func TestTestWebhookSigning(t *testing.T) {
+	e := newTestEnv(t)
+	rule := &models.RuleRecord{Name: "signed test", Webhook: models.WebhookConfig{SigningSecret: "saved-secret"}}
+	if err := e.store.SaveRule(context.Background(), rule); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name, ruleID, entered, clear, wantSecret string
+	}{
+		{name: "unsigned new rule"},
+		{name: "new secret", entered: "new-secret", wantSecret: "new-secret"},
+		{name: "preserve saved secret", ruleID: rule.ID, wantSecret: "saved-secret"},
+		{name: "replace saved secret", ruleID: rule.ID, entered: "replacement", wantSecret: "replacement"},
+		{name: "clear saved secret", ruleID: rule.ID, clear: "on"},
+		{name: "clear overrides entered secret", ruleID: rule.ID, entered: "replacement", clear: "on"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if string(body) != "{}" {
+					t.Errorf("test body = %q, want {}", body)
+				}
+				timestamp := r.Header.Get("X-Mailrelay-Timestamp")
+				signature := r.Header.Get("X-Mailrelay-Signature")
+				deliveryID := r.Header.Get("X-Mailrelay-Delivery")
+				if tc.wantSecret == "" {
+					if timestamp != "" || signature != "" || deliveryID != "" {
+						t.Error("unsigned Test request has signing headers")
+					}
+					return
+				}
+				if timestamp == "" || deliveryID == "" {
+					t.Error("missing timestamp or delivery ID")
+				}
+				mac := hmac.New(sha256.New, []byte(tc.wantSecret))
+				mac.Write([]byte(timestamp + "."))
+				mac.Write(body)
+				if want := "sha256=" + hex.EncodeToString(mac.Sum(nil)); signature != want {
+					t.Errorf("signature = %q, want %q", signature, want)
+				}
+			}))
+			defer srv.Close()
+			rec := e.do(t, "POST", "/rules/test-webhook", url.Values{
+				"webhook_url": {srv.URL}, "rule_id": {tc.ruleID},
+				"signing_secret": {tc.entered}, "clear_signing_secret": {tc.clear},
+			}, true)
+			var result struct {
+				Success bool `json:"success"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if rec.Code != http.StatusOK || !result.Success || calls.Load() != 1 {
+				t.Fatalf("status = %d, body = %s, requests = %d", rec.Code, rec.Body, calls.Load())
+			}
+			stored, err := e.store.GetRule(context.Background(), rule.ID)
+			if err != nil || stored.Webhook.SigningSecret != "saved-secret" {
+				t.Fatalf("Test modified saved secret: %+v, %v", stored, err)
+			}
+		})
+	}
+}
+
+func TestTestWebhookMissingRule(t *testing.T) {
+	e := newTestEnv(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+	}))
+	defer srv.Close()
+	rec := e.do(t, "POST", "/rules/test-webhook", url.Values{
+		"webhook_url": {srv.URL}, "rule_id": {"missing-rule"}, "signing_secret": {"do-not-send"},
+	}, true)
+	if rec.Code != http.StatusNotFound || strings.TrimSpace(rec.Body.String()) != "Rule not found" {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("sent webhook despite missing rule")
+	}
+}
+
+func TestReplayQueueFailure(t *testing.T) {
+	e := newTestEnv(t)
+	id := e.saveEmail(t, "Queue unavailable", models.EmailStatusFailed)
+	e.saveRule(t, "queue failure", "http://127.0.0.1:1")
+	// Fail after the delivery row is inserted to exercise transactional rollback.
+	db, err := sql.Open("sqlite", e.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TRIGGER fail_enqueue BEFORE INSERT ON delivery_queue BEGIN SELECT RAISE(ABORT,'queue unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	response := e.do(t, http.MethodPost, "/emails/"+id+"/replay", nil, true)
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "Failed to enqueue replay") {
+		t.Fatalf("response=%d %s", response.Code, response.Body.String())
+	}
+	rows, err := e.store.GetDeliveriesForEmail(context.Background(), id)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("partial replay committed: %+v,%v", rows, err)
+	}
+	email, err := e.store.GetEmail(context.Background(), id)
+	if err != nil || email.Status != models.EmailStatusFailed {
+		t.Fatalf("failed replay changed email: %+v,%v", email, err)
 	}
 }
