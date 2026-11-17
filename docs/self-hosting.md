@@ -1,6 +1,6 @@
 # Self-hosting
 
-This guide takes you from an empty server to mailrelay receiving mail for your domain. If you just want to try it out, use the [quick start](../README.md#quick-start) instead.
+This guide takes you from an empty server to mailrelay receiving mail for your domain. If you just want to try it out, use the [quick start](../README.md#quick-start) instead. For Fly.io or a one-paste VPS setup, see [deploy platforms](deploy-platforms.md).
 
 ## Before you start
 

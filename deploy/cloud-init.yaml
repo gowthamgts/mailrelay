@@ -1,0 +1,50 @@
+#cloud-config
+# mailrelay on a fresh Ubuntu 24.04 VPS (Hetzner, DigitalOcean, Vultr, Linode, ...).
+# Edit the two config values below, then paste this file as the server's
+# "user data" / "cloud-init" when you create it. See docs/deploy-platforms.md.
+#
+# After boot: the web UI is on the server's 127.0.0.1:2623. Reach it with
+#   ssh -L 2623:127.0.0.1:2623 root@<server-ip>
+
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+
+write_files:
+  - path: /opt/mailrelay/config.yaml
+    permissions: "0644"
+    content: |
+      smtp:
+        domain: "mx.example.com" # EDIT: the hostname your MX record points at
+        allowed_recipients:
+          - "*@alerts.example.com" # EDIT: the addresses you want to receive
+      auth:
+        spf: log
+        dkim: log
+        dmarc: log
+
+  - path: /opt/mailrelay/docker-compose.yaml
+    permissions: "0644"
+    content: |
+      services:
+        mailrelay:
+          image: ghcr.io/gowthamgts/mailrelay:latest
+          restart: unless-stopped
+          ports:
+            - "25:25"
+            - "127.0.0.1:2623:2623"
+          volumes:
+            - mailrelay_data:/data
+            - ./config.yaml:/data/config.yaml:ro
+          healthcheck:
+            test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2623/healthz"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+      volumes:
+        mailrelay_data:
+
+runcmd:
+  - systemctl enable --now docker
+  - docker compose -f /opt/mailrelay/docker-compose.yaml up -d
